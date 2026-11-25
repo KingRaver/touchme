@@ -2,7 +2,7 @@
 
 Type: spec
 Status: open
-Last verified: 2026-11-25 at `f980863`
+Last verified: 2026-11-25 at `e2db2cd`
 
 How the TouchDesigner MCP server is structured and how it must behave. Tools are specified in `specs/TOOL_CATALOG.md`. Why these choices were made is in `decisions/`.
 

@@ -2,7 +2,7 @@
 
 Type: plan
 Status: open
-Last verified: 2026-11-25 at `f980863`
+Last verified: 2026-11-25 at `e2db2cd`
 
 This plan owns all progress for building the server. Other documents link here and do not restate status.
 
@@ -38,7 +38,7 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
 - [x] Confirm TOP to PNG bytes works (`TOP.saveByteArray`)
   - Verified: `.png` and `.jpg` both work (flat 640x360: PNG 1,830 bytes in about 12 ms, JPEG 4,312 bytes in about 4 ms).
 - [x] Round trip: stdio MCP server to live TouchDesigner, returning an image Claude can see
-  - Verified 2026-11-25: `tests/integration/test_roundtrip.py` starts the real stdio server (`python -m td_mcp.server`), calls `td_capture_top` against the bridge built from `bridge/src/` and gets back a PNG (640x360, expected colour). The saved image was opened and viewed. Glob and missing paths are refused. Unit tests (53) pass with ruff and pyright clean. `tests/integration` (2 tests, including an `lsof` assertion that the bridge listens on `127.0.0.1` only) last passed live on 2026-11-25 against a `--test-fixtures` build after the first three review rounds. A fourth round then changed the bridge's error handling (handler failures return a short message; the traceback goes to the textport); that is covered by unit tests with a stubbed TouchDesigner and has not been re-run live. Also not covered live: the over-size limits and the pre-authentication error handler.
+  - Verified 2026-11-25: `tests/integration/test_roundtrip.py` starts the real stdio server (`python -m td_mcp.server`), calls `td_capture_top` against the bridge built from `bridge/src/` and gets back a PNG (640x360, expected colour). The saved image was opened and viewed. Glob and missing paths are refused. Unit tests (53) pass with ruff and pyright clean. `tests/integration` (2 tests, including an `lsof` assertion that the bridge listens on `127.0.0.1` only) passes live against a `--test-fixtures` build of the committed bridge source (verified at `e2db2cd`, 2026-11-25). Wildcard paths and non-TOP operators are refused live. Not covered live: the over-size limits and the pre-authentication error handler (unit tests with a stubbed TouchDesigner only).
 - [x] Probe on build 2025.33230: whether a glob path such as `/project1/*` passed to `td.op()` resolves to an unnamed node (decides how strict our exact-path check must be)
   - Verified: yes, and arbitrarily (`glob_*` returned `glob_beta` though `glob_alpha` was created first). Every mutating tool must require `operator.path == requested path`.
 - [x] Set the Web Server DAT's Local Address to `127.0.0.1` and confirm with `lsof` that nothing listens on other interfaces; confirm IPv4-only behavior (the prior art recorded `localhost` resolving to `::1` and failing)

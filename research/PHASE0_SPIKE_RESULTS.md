@@ -2,7 +2,7 @@
 
 Type: research
 Status: complete-with-open-items (TLS and Verify Client instability not explained; concurrency, other platforms and licensed builds untested; see "Not tested")
-Last verified: 2026-11-25 at `f980863`
+Last verified: 2026-11-25 at `e2db2cd`
 
 Measured on a live TouchDesigner **2025.33230** (macOS 26.7.3, arm64, embedded Python **3.11.15**), non-commercial license, using a throwaway probe component. The probe was a Web Server DAT with Local Address `127.0.0.1`, port 9990, a bearer token on every request, and mutations confined to its own `sandbox` container. It had no endpoint that executes arbitrary code. The probe and its token were kept outside this repository and the sandbox was destroyed afterward.
 

@@ -2,7 +2,7 @@
 
 Type: research
 Status: complete
-Last verified: 2026-11-25 at `f980863` (the source review is of upstream commit `98119d2`; the re-verification section was checked on this project's build)
+Last verified: 2026-11-25 at `e2db2cd` (the source review is of upstream commit `98119d2`; the re-verification section was checked on this project's build)
 
 Full source-level review of the closest existing project, https://github.com/8beeeaaat/touchdesigner-mcp (MIT, TypeScript, npm `touchdesigner-mcp-server`). Cloned at `98119d2` into a scratch directory and read directly. Nothing from it was executed, except TouchDesigner's own `toeexpand` tool, run on a copy of the `.tox` to unpack it. Informs `plans/TD_MCP_BUILD.md` (decision A5).
 

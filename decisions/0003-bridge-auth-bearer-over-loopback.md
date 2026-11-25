@@ -2,7 +2,7 @@
 
 Type: decision
 Status: complete
-Last verified: 2026-11-25 at `f980863`
+Last verified: 2026-11-25 at `e2db2cd`
 
 Proposed from the Phase 0 evaluation and approved by the operator on 2026-11-25.
 
