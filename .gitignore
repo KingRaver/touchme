@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+# Built bridge output embeds a per-build token. Never commit it.
+bridge/build/
+bridge/.build-*/

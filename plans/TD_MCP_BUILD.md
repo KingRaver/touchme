@@ -2,7 +2,7 @@
 
 Type: plan
 Status: open
-Last verified: 2026-11-25 at `no git repo yet`
+Last verified: 2026-11-25 at `f980863`
 
 This plan owns all progress for building the server. Other documents link here and do not restate status.
 
@@ -37,14 +37,18 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
   - Verified: `MainThread` on every request (9 routes).
 - [x] Confirm TOP to PNG bytes works (`TOP.saveByteArray`)
   - Verified: `.png` and `.jpg` both work (flat 640x360: PNG 1,830 bytes in about 12 ms, JPEG 4,312 bytes in about 4 ms).
-- [ ] Round trip: stdio MCP server to live TouchDesigner, returning an image Claude can see
+- [x] Round trip: stdio MCP server to live TouchDesigner, returning an image Claude can see
+  - Verified 2026-11-25: `tests/integration/test_roundtrip.py` starts the real stdio server (`python -m td_mcp.server`), calls `td_capture_top` against the bridge built from `bridge/src/` and gets back a PNG (640x360, expected colour). The saved image was opened and viewed. Glob and missing paths are refused. Unit tests (53) pass with ruff and pyright clean. `tests/integration` (2 tests, including an `lsof` assertion that the bridge listens on `127.0.0.1` only) last passed live on 2026-11-25 against a `--test-fixtures` build after the first three review rounds. A fourth round then changed the bridge's error handling (handler failures return a short message; the traceback goes to the textport); that is covered by unit tests with a stubbed TouchDesigner and has not been re-run live. Also not covered live: the over-size limits and the pre-authentication error handler.
 - [x] Probe on build 2025.33230: whether a glob path such as `/project1/*` passed to `td.op()` resolves to an unnamed node (decides how strict our exact-path check must be)
   - Verified: yes, and arbitrarily (`glob_*` returned `glob_beta` though `glob_alpha` was created first). Every mutating tool must require `operator.path == requested path`.
 - [x] Set the Web Server DAT's Local Address to `127.0.0.1` and confirm with `lsof` that nothing listens on other interfaces; confirm IPv4-only behavior (the prior art recorded `localhost` resolving to `::1` and failing)
   - Verified: `127.0.0.1:9990 (LISTEN)` IPv4 only; the LAN address (192.168.1.106) could not connect. The `localhost`-resolves-to-`::1` failure was not separately tested; use `127.0.0.1` in all configuration.
-- [ ] Evaluate the DAT's built-in Basic auth (`authenticateBasic`) and Secure (TLS) / Verify Client options as the bridge's authentication, versus our own bearer-token check
-- [ ] Re-verify on 2025.33230 the TouchDesigner behaviors the prior art recorded (name-collision rename, error and warning stream formats, Script OP exceptions reaching no stream, `op(<dict>)` hang) before relying on them; list in `research/PRIOR_ART_TOUCHDESIGNER_MCP.md`
-- [ ] Compare capture options: `saveByteArray('.jpg')` as the prior art uses it, versus a path that does not create a temporary operator when downscaling
+- [x] Evaluate the DAT's built-in Basic auth (`authenticateBasic`) and Secure (TLS) / Verify Client options as the bridge's authentication, versus our own bearer-token check
+  - Evaluated 2026-11-25. Basic works but needs a plaintext password dict in the callbacks DAT, so it adds nothing over a bearer token. TLS worked once with a self-signed certificate, then 3 of 3 attempts with CA-signed certificates left the instance not listening or took the process down (cause not isolated). Verify Client has no documented trust-store parameter and one attempt took the instance down. Proposed outcome: keep the bearer token over loopback, in `decisions/0003-bridge-auth-bearer-over-loopback.md` (approved by the operator 2026-11-25).
+- [x] Re-verify on 2025.33230 the TouchDesigner behaviors the prior art recorded (name-collision rename, error and warning stream formats, Script OP exceptions reaching no stream, `op(<dict>)` hang) before relying on them; list in `research/PRIOR_ART_TOUCHDESIGNER_MCP.md`
+  - Verified 2026-11-25 (verdict table in `research/PRIOR_ART_TOUCHDESIGNER_MCP.md`). Rename, stream formats and Script OP exceptions hold. **`op(<dict>)` did not hang** with `{"a": 1}` (returned `None` in 5 ms); other payloads untried, so keep the type check on `path`. An Error DAT check was inconclusive.
+- [x] Compare capture options: `saveByteArray('.jpg')` as the prior art uses it, versus a path that does not create a temporary operator when downscaling
+  - Measured 2026-11-25 on a 1280x720 noise TOP downscaled to 512x288: temporary Resolution TOP 15 ms, `numpyArray()` + flip + `cv2.resize` + `cv2.imencode` 16 ms with no temporary operator, visually equivalent (0.35/255 mean difference). The array must be flipped (`arr[::-1]`). `cv2` and `numpy` ship in TouchDesigner's Python. Table in `research/PHASE0_SPIKE_RESULTS.md`.
 
 ### Phase 1: Core and perception (read-only)
 
