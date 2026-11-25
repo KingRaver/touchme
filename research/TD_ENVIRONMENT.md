@@ -18,8 +18,7 @@ Facts about the machine this server is built on. Re-run the commands if the Touc
 
 ## Not yet verified
 
-- Whether Web Server DAT callbacks run on TouchDesigner's main thread. Tracked in `plans/TD_MCP_BUILD.md` Phase 0.
-- License tier (non-commercial, commercial, pro). Needed to know capture resolution limits.
+- Nothing outstanding from Phase 0 environment checks. Verified 2026-11-25 (see `PHASE0_SPIKE_RESULTS.md`): callbacks run on the main thread; the license is non-commercial with a 1280x1280 resolution cap; embedded Python is 3.11.15.
 
 ## Notes
 

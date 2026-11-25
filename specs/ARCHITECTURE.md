@@ -39,7 +39,7 @@ The bridge is Python by necessity, because TouchDesigner scripting is Python. Se
 
 TouchDesigner's API is not thread-safe, so every `op()` / `par` access must run on the main thread.
 
-**Unverified assumption:** Web Server DAT callbacks run on the main thread. If they do not, handlers enqueue work and an Execute DAT frame callback drains the queue. Resolved in Phase 0 of `plans/TD_MCP_BUILD.md`.
+**Verified** on TouchDesigner 2025.33230 (macOS, 2026-11-25): Web Server DAT callbacks run on the main thread, so handlers may touch operators directly. See `research/PHASE0_SPIKE_RESULTS.md`. Not verified: behavior under concurrent or long-running requests, other builds or platforms. If a build ever runs callbacks elsewhere, handlers must enqueue work and an Execute DAT frame callback must drain the queue.
 
 Long operations must not freeze TouchDesigner. The bridge enforces a per-request time budget and returns partial results with a clear message.
 
