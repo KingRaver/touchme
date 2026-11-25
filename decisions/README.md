@@ -6,3 +6,4 @@ Why the system is the way it is. Numbered in order. A changed decision gets a ne
 |---|---|---|
 | 0001 Python with FastMCP | [0001-python-fastmcp.md](0001-python-fastmcp.md) | complete |
 | 0002 stdio server with an HTTP bridge | [0002-stdio-server-http-bridge.md](0002-stdio-server-http-bridge.md) | complete |
+| 0003 Bridge auth is a bearer token over loopback | [0003-bridge-auth-bearer-over-loopback.md](0003-bridge-auth-bearer-over-loopback.md) | complete |

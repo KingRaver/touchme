@@ -2,7 +2,7 @@
 
 Type: research
 Status: complete
-Last verified: 2026-11-25 at `98119d2` (upstream commit; this project has no commit yet)
+Last verified: 2026-11-25 at `e2db2cd` (the source review is of upstream commit `98119d2`; the re-verification section was checked on this project's build)
 
 Full source-level review of the closest existing project, https://github.com/8beeeaaat/touchdesigner-mcp (MIT, TypeScript, npm `touchdesigner-mcp-server`). Cloned at `98119d2` into a scratch directory and read directly. Nothing from it was executed, except TouchDesigner's own `toeexpand` tool, run on a copy of the `.tox` to unpack it. Informs `plans/TD_MCP_BUILD.md` (decision A5).
 
@@ -54,6 +54,19 @@ These come from their tests and comments, "measured on 099.2025.33230" unless no
 ## What the official docs add (docs.derivative.ca/Web_Server_DAT, edited 2026-06-04)
 
 The Web Server DAT has built-in **Local Address** (bind to one interface), **Secure (TLS)**, **Verify Client** (mutual TLS) and Basic authentication through the `authenticateBasic` Python method. The page says "security is the complete responsibility of the user". The prior art uses none of these. We can.
+
+## Re-verification on 2025.33230 (2026-11-25)
+
+The behaviors recorded above that we depend on were re-checked on a live 2025.33230. Detail and evidence are in `research/PHASE0_SPIKE_RESULTS.md`; this table is only the verdict.
+
+| Prior-art claim | Verdict on our build |
+|---|---|
+| Name collision silently renames | Holds |
+| `errors()` and `warnings()` line formats | Holds |
+| Script OP exceptions reach no stream (`addError` does) | Holds |
+| `td.op()` glob returns an unnamed match | Holds, and the match is arbitrary rather than first by name |
+| JPEG capture via `saveByteArray` | Holds; PNG also works |
+| `op(<dict>)` hangs TouchDesigner | **Did not reproduce** with `{"a": 1}` |
 
 ## Findings: gaps and risks
 

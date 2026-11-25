@@ -1,0 +1,44 @@
+[project]
+name = "td-mcp"
+version = "0.0.0"
+description = "Local MCP server for TouchDesigner (stdio server, HTTP bridge)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=4.2,<5",
+    "httpx>=0.28,<1",
+]
+
+[project.scripts]
+td-mcp = "td_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "pyright",
+    "pillow>=13.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/td_mcp"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# Runs inside TouchDesigner: op/parent/app/constantTOP are injected globals.
+"bridge/src/*.py" = ["F821", "UP031", "BLE001", "W191", "E101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = ["integration: needs a live TouchDesigner with the bridge loaded (opt-in)"]
+
+[tool.pyright]
+include = ["src", "tests"]

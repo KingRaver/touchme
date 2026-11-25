@@ -2,7 +2,7 @@
 
 Type: spec
 Status: open
-Last verified: 2026-11-25 at `no git repo yet`
+Last verified: 2026-11-25 at `e2db2cd`
 
 How the TouchDesigner MCP server is structured and how it must behave. Tools are specified in `specs/TOOL_CATALOG.md`. Why these choices were made is in `decisions/`.
 
@@ -53,7 +53,7 @@ Long operations must not freeze TouchDesigner. The bridge enforces a per-request
 
 ## Repository layout
 
-Documentation lives in purpose-named top-level folders. Code folders are created when the first code lands.
+Documentation lives in purpose-named top-level folders. Code folders (`src/`, `bridge/`, `tests/`) now exist; `evals/` is created with the first eval.
 
 ```
 touchme/
@@ -67,7 +67,8 @@ touchme/
   incidents/    what went wrong (created with the first incident)
 
   src/td_mcp/   MCP server: server.py, client.py, tools/, schemas.py, errors.py, docs_index/
-  bridge/       TD side: src/ (callbacks.py, handlers/, dispatch.py) and the built .tox
+  bridge/       TD side: src/ (callbacks.py now; handlers/ and dispatch.py planned), build_spike.py,
+                and build/ (the built .tox and its token; gitignored, never committed)
   tests/        unit/ (fake bridge) and integration/ (real TouchDesigner, opt-in)
   evals/        td_eval.xml (10 question evaluation set)
 ```
