@@ -2,7 +2,7 @@
 
 Type: plan
 Status: open
-Last verified: 2026-11-26 at `fd2cdbd`
+Last verified: 2026-11-26 at `64a3ad9`
 
 This plan owns all progress for building the server. Other documents link here and do not restate status.
 
@@ -97,6 +97,7 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
 ### Phase 4: Performance and data
 
 - [x] `td_get_performance`, CHOP/DAT/SOP readers, `td_timeline`, `td_capture_contact_sheet`
+  - Note 2026-11-26: the verified code is committed as `64a3ad9`.
   - Implemented 2026-11-26 on the uncommitted working tree over `5e90090` (bridge API `0.5.0`):
     all five tools (`td_get_performance`, `td_read_chop`, `td_read_dat`, `td_read_sop_info`,
     `td_timeline`, `td_capture_contact_sheet`) in `bridge/src/callbacks.py` and

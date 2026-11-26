@@ -2,9 +2,9 @@
 
 Type: research
 Status: complete-with-open-items (see "Not tested")
-Last verified: 2026-11-26 at `5e90090`
+Last verified: 2026-11-26 at `64a3ad9`
 
-How the performance, data, timeline and contact-sheet tools behaved on a live **2025.33230** (macOS, arm64, non-commercial license), through the real stdio server and a `--test-fixtures` bridge build with TouchDesigner in front. The code is the uncommitted working tree over `5e90090`. Probes were throwaway scripts kept outside this repository; they used the server's own tools, so no probe component was needed.
+How the performance, data, timeline and contact-sheet tools behaved on a live **2025.33230** (macOS, arm64, non-commercial license), through the real stdio server and a `--test-fixtures` bridge build with TouchDesigner in front. The code these results shaped is committed as `64a3ad9`; it was measured as an uncommitted working tree over `5e90090`. Probes were throwaway scripts kept outside this repository; they used the server's own tools, so no probe component was needed.
 
 ## First run: what the unit tests had missed
 
