@@ -1,4 +1,4 @@
-"""MCP server (stdio). Phase 1: core and perception (read-only tools)."""
+"""MCP server (stdio): perception and construction tools."""
 
 from __future__ import annotations
 
@@ -13,6 +13,12 @@ from td_mcp.client import BridgeClient
 mcp = FastMCP("td-mcp")
 
 _READ_ONLY = {"readOnlyHint": True, "openWorldHint": False}
+# Adds to the project without removing or overwriting anything.
+_ADDITIVE = {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+# Removes or overwrites something. All of these can be reversed with td_undo.
+_DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
+# A parameter expression is Python that TouchDesigner runs, so it can reach outside the project.
+_SETS_EXPRESSIONS = {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}
 
 
 @mcp.tool(annotations=_READ_ONLY)
@@ -99,6 +105,115 @@ def td_get_parameters(path: str, name: str | None = None) -> schemas.ParameterLi
     `min`/`max` are clamp limits, null on a side where the value is not clamped.
     """
     return cast(schemas.ParameterList, BridgeClient().get_parameters(path, name))
+
+
+@mcp.tool(annotations=_ADDITIVE)
+def td_create_operator(
+    parent: str,
+    type: str,
+    name: str | None = None,
+    x: int | None = None,
+    y: int | None = None,
+) -> schemas.CreatedOperator:
+    """Create one operator inside a COMP, as a single undo step.
+
+    parent: absolute path of the COMP to create in, for example "/project1".
+    type: operator type with its family, for example "noiseTOP", "constantCHOP", "baseCOMP".
+    An unknown type is refused with the closest valid names.
+    name: optional; letters, digits and underscores. If taken, TouchDesigner picks another:
+    always use the returned `path`.
+    x, y: optional node position (give both). By default it goes right of the existing nodes.
+    """
+    result = BridgeClient().create_operator(parent, type, name, x, y)
+    return cast(schemas.CreatedOperator, result)
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def td_connect(
+    source: str, target: str, source_output: int = 0, target_input: int = 0
+) -> schemas.Connection:
+    """Wire an output of one operator into an input of another in the same network.
+
+    source, target: absolute operator paths, for example "/project1/noise1".
+    source_output, target_input: connector numbers, from 0. Whatever was on that input is
+    replaced (listed in `replaced`). To add an input to a multi-input operator such as a
+    Composite TOP, use the next free number. Does not set up 3D or panel parenting between
+    COMPs.
+    """
+    result = BridgeClient().connect(source, target, source_output, target_input)
+    return cast(schemas.Connection, result)
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def td_disconnect(target: str, target_input: int = 0) -> schemas.Disconnection:
+    """Remove the wire on one input of an operator.
+
+    target: absolute path of the operator whose input is disconnected.
+    target_input: connector number, from 0. On multi-input operators the later inputs move up,
+    so read `inputs` in the reply before disconnecting another.
+    """
+    result = BridgeClient().disconnect(target, target_input)
+    return cast(schemas.Disconnection, result)
+
+
+@mcp.tool(annotations=_SETS_EXPRESSIONS)
+def td_set_parameters(
+    path: str, parameters: list[schemas.ParameterChange]
+) -> schemas.ParametersChanged:
+    """Set several parameters of one operator as one atomic undo step.
+
+    path: absolute operator path.
+    parameters: each is {"name": ...} plus exactly one of:
+      "value": a constant, for example {"name": "resolutionw", "value": 1280}. Replaces any
+        expression or bind on that parameter. Menus take a menu name (see td_get_parameters).
+      "expr": a Python expression TouchDesigner evaluates, for example "absTime.seconds".
+      "bind": a bind reference, for example "op('/project1/base1').par.Speed".
+    If any change is invalid, or an expression or bind does not work, none are applied.
+    `adjusted` marks a number TouchDesigner clamped. CHOP and DAT exports cannot be created,
+    and pulse buttons cannot be pressed.
+    """
+    changes = [dict(change) for change in parameters]
+    return cast(schemas.ParametersChanged, BridgeClient().set_parameters(path, changes))
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def td_delete_operator(path: str) -> schemas.DeletedOperator:
+    """Delete one operator and everything inside it. Reversible with td_undo.
+
+    path: exact absolute path. Wildcards are refused. The bridge, anything containing it, and
+    TouchDesigner's /ui, /sys and /local networks cannot be deleted. TouchDesigner may wire
+    the deleted operator's source straight into the operators it fed: check `downstream`.
+    """
+    return cast(schemas.DeletedOperator, BridgeClient().delete_operator(path))
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def td_layout(path: str) -> schemas.LayoutResult:
+    """Arrange the direct children of a COMP left to right by signal flow, as one undo step.
+
+    path: absolute path of the COMP, for example "/project1". Overwrites node positions.
+    Docked operators move with their host; annotation boxes are not moved.
+    """
+    return cast(schemas.LayoutResult, BridgeClient().layout(path))
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def td_undo(steps: int = 1) -> schemas.HistoryResult:
+    """Undo the most recent changes made through this server, newest first.
+
+    steps: 1 to 20. Stops at the first undo entry this server did not make (for example an edit
+    made by hand in TouchDesigner), and never undoes it.
+    """
+    return cast(schemas.HistoryResult, BridgeClient().undo(steps))
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+def td_redo(steps: int = 1) -> schemas.HistoryResult:
+    """Redo changes undone with td_undo.
+
+    steps: 1 to 20. A new change made after an undo discards what could be redone.
+    """
+    return cast(schemas.HistoryResult, BridgeClient().redo(steps))
 
 
 def main() -> None:

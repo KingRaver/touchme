@@ -30,4 +30,4 @@ export TD_MCP_TOKEN_FILE=$PWD/bridge/build/token.txt
 uv run pytest tests/integration -m integration -p no:cacheprovider
 ```
 
-`--test-fixtures` adds a route the integration test needs; without it the bridge is read-only. The `.tox` is built from `bridge/src/callbacks.py`: rebuild and reopen it after any change to that file, or TouchDesigner keeps running the old copy.
+`--test-fixtures` adds routes the integration tests need. With or without it, the bridge can change the open project; the integration tests create and delete a `/td_mcp_test` component and leave entries in the undo history. The `.tox` is built from `bridge/src/callbacks.py`: rebuild and reopen it after any change to that file, or TouchDesigner keeps running the old copy.

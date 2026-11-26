@@ -48,7 +48,15 @@ Long operations must not freeze TouchDesigner. The bridge enforces a per-request
 - Bind to `127.0.0.1` only.
 - A random per-session bearer token is generated in the bridge and passed to the server via an env var or a `0600` token file.
 - `td_exec_python` is off by default, enabled by a custom parameter on the bridge COMP, and annotated destructive and open-world.
-- Every mutating call runs in an undo block and is written to an audit log.
+- Every mutating call runs in an undo block and is written to an audit log
+  (`~/.td-mcp/audit.jsonl`, mode `0600`, set with `build_spike.py --audit-log`). It grows without
+  limit; rotation is not built.
+- Mutating routes take `POST` with a JSON body. The bridge refuses to change its own component,
+  `/ui` and `/sys`. This guards against mistakes only: parameter expressions are Python run by
+  TouchDesigner, so a caller who can set one can reach anything, with or without
+  `td_exec_python` (`decisions/0003-bridge-auth-bearer-over-loopback.md`).
+- The callbacks module is re-executed on every request, so bridge state that must outlive a
+  request belongs in COMP storage (`research/PHASE2_UNDO_RESULTS.md`).
 - Path-taking tools (save, load, export) are restricted to a configurable allow-listed root.
 
 ## Repository layout

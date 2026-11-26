@@ -2,7 +2,9 @@ import asyncio
 
 import pytest
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
+from td_mcp import errors as server_errors
 from td_mcp import server
 from td_mcp.client import Capture
 
@@ -170,3 +172,97 @@ def test_get_parameters_tool_passes_name_pattern_through(monkeypatch):
     )
     _call("td_get_parameters", {"path": "/p/out", "name": "reso*"})
     assert seen == {"path": "/p/out", "name": "reso*"}
+
+
+# --- construction tools ---------------------------------------------------------------------
+
+# name -> (destructiveHint, openWorldHint)
+CHANGE_TOOLS = {
+    "td_create_operator": (False, False),
+    "td_connect": (True, False),
+    "td_disconnect": (True, False),
+    "td_set_parameters": (True, True),  # an expression is Python that TouchDesigner runs
+    "td_delete_operator": (True, False),
+    "td_layout": (True, False),
+    "td_undo": (True, False),
+    "td_redo": (True, False),
+}
+
+
+def test_the_server_exposes_exactly_the_expected_tools():
+    assert set(_list_tools()) == set(READ_ONLY_TOOLS) | set(CHANGE_TOOLS)
+
+
+@pytest.mark.parametrize("name", CHANGE_TOOLS)
+def test_change_tools_are_annotated_and_have_an_output_schema(name):
+    tool = _list_tools()[name]
+    assert tool.annotations is not None
+    destructive, open_world = CHANGE_TOOLS[name]
+    assert tool.annotations.read_only_hint is False
+    assert tool.annotations.destructive_hint is destructive
+    assert tool.annotations.open_world_hint is open_world
+    assert tool.output_schema is not None and tool.output_schema.get("properties")
+    assert "undo_label" in tool.output_schema["properties"] or name in ("td_undo", "td_redo")
+
+
+def test_set_parameters_passes_value_types_through_unchanged(monkeypatch):
+    seen = {}
+    state = {"mode": "CONSTANT", "value": 1, "expr": None, "bind": None}
+
+    def fake(self, path, parameters):
+        seen.update(path=path, parameters=parameters)
+        return {
+            "path": path,
+            "parameters": [
+                {"name": "a", "previous": state, "adjusted": False, "warning": None, **state}
+            ],
+            "undo_label": "td-mcp x",
+            "audit_warning": None,
+        }
+
+    monkeypatch.setattr(server.BridgeClient, "set_parameters", fake)
+    changes = [
+        {"name": "a", "value": 1},
+        {"name": "b", "value": 1.5},
+        {"name": "c", "value": True},
+        {"name": "d", "value": "1"},
+        {"name": "e", "expr": "absTime.seconds"},
+        {"name": "f", "bind": "op('/p').par.X"},
+    ]
+
+    result = _call("td_set_parameters", {"path": "/p/a", "parameters": changes})
+
+    assert seen["parameters"] == changes
+    assert [type(c.get("value")) for c in seen["parameters"][:4]] == [int, float, bool, str]
+    assert result.structured_content is not None
+    assert result.structured_content["undo_label"] == "td-mcp x"
+
+
+@pytest.mark.parametrize(
+    "tool, args, method, expected",
+    [
+        (
+            "td_create_operator",
+            {"parent": "/p", "type": "noiseTOP", "name": "n"},
+            "create_operator",
+            ("/p", "noiseTOP", "n", None, None),
+        ),
+        ("td_connect", {"source": "/p/a", "target": "/p/b"}, "connect", ("/p/a", "/p/b", 0, 0)),
+        ("td_disconnect", {"target": "/p/b", "target_input": 1}, "disconnect", ("/p/b", 1)),
+        ("td_delete_operator", {"path": "/p/a"}, "delete_operator", ("/p/a",)),
+        ("td_layout", {"path": "/p"}, "layout", ("/p",)),
+        ("td_undo", {"steps": 3}, "undo", (3,)),
+        ("td_redo", {}, "redo", (1,)),
+    ],
+)
+def test_change_tools_pass_their_arguments_to_the_client(monkeypatch, tool, args, method, expected):
+    seen = []
+
+    def fake(self, *given):
+        seen.append(given)
+        raise server_errors.BridgeError("stop here")
+
+    monkeypatch.setattr(server.BridgeClient, method, fake)
+    with pytest.raises(ToolError, match="stop here"):
+        _call(tool, args)
+    assert seen == [expected]

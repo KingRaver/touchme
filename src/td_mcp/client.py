@@ -23,8 +23,8 @@ DEFAULT_TIMEOUT_S = 10.0
 # package's version. MIN is the oldest bridge build this client will talk to; EXPECTED is
 # what it was built and tested against. A bridge below MIN is refused outright so a stale
 # bridge fails with "rebuild it" instead of a confusing 404 on a route it does not have yet.
-MIN_API_VERSION = "0.2.0"
-EXPECTED_API_VERSION = "0.2.0"
+MIN_API_VERSION = "0.3.0"
+EXPECTED_API_VERSION = "0.3.0"
 # The bridge's Web Server DAT listens on IPv4 127.0.0.1 only (Phase 0), and "localhost" can
 # resolve to ::1 first and be refused, so no other spelling is accepted.
 _LOOPBACK_HOSTS = {"127.0.0.1"}
@@ -139,26 +139,53 @@ class BridgeClient:
 
     def get(self, route: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """GET a bridge route and return the decoded JSON object. Raises BridgeError."""
+        return self._request("GET", route, params=params)
+
+    def post(self, route: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a change to the bridge. Never retried: a repeat could apply the change twice."""
+        return self._request("POST", route, payload=payload)
+
+    def _request(
+        self,
+        method: str,
+        route: str,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         token = self._token or _read_token()
         try:
             # trust_env=False: never route the token through HTTP_PROXY/ALL_PROXY.
             with httpx.Client(
                 timeout=self._timeout_s, transport=self._transport, trust_env=False
             ) as http:
-                resp = http.get(
+                resp = http.request(
+                    method,
                     self._base_url + route,
                     params=params,
+                    json=payload,
                     headers={"Authorization": f"Bearer {token}"},
                 )
-        except httpx.TimeoutException as exc:
-            raise BridgeError(
-                f"TouchDesigner did not answer within {self._timeout_s:g}s. "
-                "It may be busy cooking; try again."
-            ) from exc
-        except httpx.HTTPError as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             raise BridgeError(
                 f"Cannot reach the bridge at {self._base_url}. Is TouchDesigner open with "
                 f"the bridge loaded? ({type(exc).__name__})"
+            ) from exc
+        except httpx.HTTPError as exc:
+            if method != "GET":
+                # The request may have reached TouchDesigner, so the outcome is unknown.
+                raise BridgeError(
+                    f"No reply from the bridge ({type(exc).__name__}). The change may or may "
+                    "not have been applied. Check with td_get_operator or td_snapshot_graph "
+                    "before trying again."
+                ) from exc
+            if not isinstance(exc, httpx.TimeoutException):
+                raise BridgeError(
+                    f"Cannot reach the bridge at {self._base_url}. Is TouchDesigner open with "
+                    f"the bridge loaded? ({type(exc).__name__})"
+                ) from exc
+            raise BridgeError(
+                f"TouchDesigner did not answer within {self._timeout_s:g}s. "
+                "It may be busy cooking; try again."
             ) from exc
         try:
             body = resp.json()
@@ -200,6 +227,59 @@ class BridgeClient:
         if "error" in result:
             raise BridgeError(str(result["error"]))
         return result
+
+    def _change(self, route: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a change. Fields that are None are left out; a bridge refusal raises."""
+        body = {key: value for key, value in payload.items() if value is not None}
+        result = self.post(route, body).get("result")
+        if not isinstance(result, dict):
+            raise BridgeError(_UNEXPECTED)
+        if "error" in result:
+            raise BridgeError(str(result["error"]))
+        return result
+
+    def create_operator(
+        self,
+        parent: str,
+        type: str,
+        name: str | None = None,
+        x: int | None = None,
+        y: int | None = None,
+    ) -> dict[str, Any]:
+        return self._change(
+            "/create", {"parent": parent, "type": type, "name": name, "x": x, "y": y}
+        )
+
+    def connect(
+        self, source: str, target: str, source_output: int = 0, target_input: int = 0
+    ) -> dict[str, Any]:
+        return self._change(
+            "/connect",
+            {
+                "source": source,
+                "target": target,
+                "source_output": source_output,
+                "target_input": target_input,
+            },
+        )
+
+    def disconnect(self, target: str, target_input: int = 0) -> dict[str, Any]:
+        return self._change("/disconnect", {"target": target, "target_input": target_input})
+
+    def set_parameters(self, path: str, parameters: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._change("/set-parameters", {"path": path, "parameters": parameters})
+
+    def delete_operator(self, path: str) -> dict[str, Any]:
+        return self._change("/delete", {"path": path})
+
+    def layout(self, path: str) -> dict[str, Any]:
+        return self._change("/layout", {"path": path})
+
+    def undo(self, steps: int = 1) -> dict[str, Any]:
+        return self._change("/undo", {"steps": steps})
+
+    def redo(self, steps: int = 1) -> dict[str, Any]:
+        return self._change("/redo", {"steps": steps})
 
     def ping(self) -> dict[str, Any]:
         return self._result("/ping")
