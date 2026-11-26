@@ -2,7 +2,7 @@
 
 Type: guide
 Status: open
-Last verified: 2026-11-26 at `8cbebbe`
+Last verified: 2026-11-26 at `369aabd`
 
 How to install and launch the server, and the bridge it talks to. See `specs/ARCHITECTURE.md`
 for what the two pieces are, and `research/TD_ENVIRONMENT.md` for the TouchDesigner build this
@@ -86,6 +86,15 @@ export TD_MCP_TOKEN_FILE=/absolute/path/to/td-mcp/bridge/build/token.txt
 Rebuild and reopen the `.tox` after any change to `bridge/src/callbacks.py` — TouchDesigner
 keeps running whatever was last loaded. The bridge binds to `127.0.0.1` only and checks a
 bearer token plus the request's Host and Origin on every call (`decisions/0003-bridge-auth-bearer-over-loopback.md`).
+
+Delete the previous `td_mcp_bridge` component before loading a rebuilt one: both use the same
+port. Do not save a project inside `bridge/build/`, because a rebuild replaces that folder.
+
+## If the bridge does not answer
+
+Bring TouchDesigner to the front and try again. It has been seen to stop answering while another
+application was in front, and to resume once it was brought forward
+(`research/PHASE1_LIVE_RESULTS.md`; the cause is not confirmed).
 
 ## Verify it's working
 
