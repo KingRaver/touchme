@@ -2,6 +2,23 @@
 
 Newest first. Progress and evidence for planned work live in [plans/TD_MCP_BUILD.md](plans/TD_MCP_BUILD.md); this file records what changed and why.
 
+## 2026-11-26: Phase 3, knowledge
+
+### Added
+- `td_describe_operator_type`: an operator type's parameters (names, defaults, menus, limits, help) read from the running build, from a temporary operator inside the bridge that is removed at once.
+- `td_search_docs`: search of the offline documentation shipped with the installed TouchDesigner, indexed on first use in `~/.td-mcp/docs-index.sqlite`. No bridge or network needed.
+- `research/PHASE3_KNOWLEDGE_RESULTS.md`: what creating each operator type does, and what the offline help holds.
+
+### Changed
+- The bridge `API_VERSION` and the server's minimum are now `0.4.0`: rebuild the bridge and load the new `.tox`.
+
+### Security
+- Hardware operator types are never created to read their parameters. In a probe, creating all types (cooking off) raised a macOS camera permission request and opened UDP sockets. These types are described from the build's help file instead, with less detail.
+
+### Known gaps
+- The live run described only a few ordinary types and one hardware type.
+- The hardware list is by type name. A type it misses would be created like any other.
+
 ## 2026-11-26: Phase 2, construction
 
 ### Added

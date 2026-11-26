@@ -16,6 +16,8 @@ READ_ONLY_TOOLS = [
     "td_list_children",
     "td_get_operator",
     "td_get_parameters",
+    "td_describe_operator_type",
+    "td_search_docs",
 ]
 
 # Tools returning a JSON-shaped result (everything but td_capture_top, which returns an MCP
@@ -172,6 +174,56 @@ def test_get_parameters_tool_passes_name_pattern_through(monkeypatch):
     )
     _call("td_get_parameters", {"path": "/p/out", "name": "reso*"})
     assert seen == {"path": "/p/out", "name": "reso*"}
+
+
+# --- knowledge tools ------------------------------------------------------------------------
+
+
+def test_describe_operator_type_tool_leaves_absent_fields_absent(monkeypatch):
+    seen = []
+    reply = {
+        "type": "noiseTOP", "family": "TOP", "label": "Noise", "source": "live", "note": None,
+        "min_inputs": 0, "max_inputs": 2, "pages": ["Noise"], "also_creates": [],
+        "parameter_count": 2, "offset": 0, "limit": 60, "next_offset": None,
+        "parameters": [{"name": "seed", "default": 1.0}, {"name": "file", "default": ""}],
+    }
+    monkeypatch.setattr(
+        server.BridgeClient, "describe_operator_type",
+        lambda self, *given: seen.append(given) or reply,
+    )
+
+    result = _call("td_describe_operator_type", {"type": "noiseTOP", "page": "Noise"})
+
+    assert seen == [("noiseTOP", None, "Noise", 0, 60)]
+    assert result.structured_content == reply
+
+
+def test_search_docs_tool_returns_passages_without_a_bridge(monkeypatch):
+    seen = []
+    reply = {
+        "query": "blur", "offset": 0, "next_offset": None,
+        "results": [{
+            "page": "Blur_TOP", "title": "Blur TOP", "kind": "operator", "section": "Summary",
+            "text": "t", "all_words": True, "url": "https://docs.derivative.ca/Blur_TOP",
+        }],
+    }
+    monkeypatch.setattr(
+        server.docs_index, "search", lambda *given: seen.append(given) or reply
+    )
+
+    result = _call("td_search_docs", {"query": "blur", "kind": "operator"})
+
+    assert seen == [("blur", "operator", None, 0, 5)]
+    assert result.structured_content == reply
+
+
+def test_search_docs_tool_reports_why_it_failed(monkeypatch):
+    def fail(*given):
+        raise server_errors.DocsError("No TouchDesigner offline help at /x.")
+
+    monkeypatch.setattr(server.docs_index, "search", fail)
+    with pytest.raises(ToolError, match="No TouchDesigner offline help"):
+        _call("td_search_docs", {"query": "blur"})
 
 
 # --- construction tools ---------------------------------------------------------------------

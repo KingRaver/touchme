@@ -2,7 +2,7 @@
 
 Type: guide
 Status: open
-Last verified: 2026-11-26 at `a569928`
+Last verified: 2026-11-26 at `fd2cdbd`
 
 How to install and launch the server, and the bridge it talks to. See `specs/ARCHITECTURE.md`
 for what the two pieces are, and `research/TD_ENVIRONMENT.md` for the TouchDesigner build this
@@ -95,6 +95,19 @@ bearer token plus the request's Host and Origin on every call (`decisions/0003-b
 
 Delete the previous `td_mcp_bridge` component before loading a rebuilt one: both use the same
 port. Do not save a project inside `bridge/build/`, because a rebuild replaces that folder.
+
+## Documentation search
+
+`td_search_docs` reads the offline help inside your TouchDesigner install, so TouchDesigner does
+not need to be running and nothing is fetched online. The first search after installing or
+updating TouchDesigner builds an index in `~/.td-mcp/docs-index.sqlite` (about 9 s and 19 MB on
+the development machine). Set these in the server's `env` only if the defaults are wrong:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TD_APP` | `/Applications/TouchDesigner.app` | TouchDesigner to read the help from |
+| `TD_MCP_DOCS_DIR` | inside `TD_APP` | The folder of offline help `.htm` pages (needed off macOS; not tried there) |
+| `TD_MCP_CACHE_DIR` | `~/.td-mcp` | Where the index is written |
 
 ## If the bridge does not answer
 

@@ -1,4 +1,4 @@
-"""MCP server (stdio): perception and construction tools."""
+"""MCP server (stdio): perception, construction and knowledge tools."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Literal, cast
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 
-from td_mcp import schemas
+from td_mcp import docs_index, schemas
 from td_mcp.client import BridgeClient
 
 mcp = FastMCP("td-mcp")
@@ -105,6 +105,54 @@ def td_get_parameters(path: str, name: str | None = None) -> schemas.ParameterLi
     `min`/`max` are clamp limits, null on a side where the value is not clamped.
     """
     return cast(schemas.ParameterList, BridgeClient().get_parameters(path, name))
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def td_describe_operator_type(
+    type: str,
+    name: str | None = None,
+    page: str | None = None,
+    offset: int = 0,
+    limit: int = 60,
+) -> schemas.OperatorTypeDescription:
+    """Parameters of an operator type, read from the running TouchDesigner. Use it before
+    setting parameters, so names and menu entries are real ones.
+
+    type: operator type with its family, for example "noiseTOP". An unknown type is refused
+    with the closest valid names.
+    name: optional parameter name pattern, for example "resolution*". Filtering by name also
+    returns full help text and menu labels.
+    page: optional parameter page, for example "Transform"; the reply lists the `pages`.
+    offset/limit: page through the parameters. limit is capped at 250.
+    The bridge reads the type from a temporary operator that it removes at once. Hardware types
+    (cameras, sensors, audio, MIDI, serial and so on) are never created; they are described
+    with less detail from the build's help file, as `source` and `note` say.
+    """
+    result = BridgeClient().describe_operator_type(type, name, page, offset, limit)
+    return cast(schemas.OperatorTypeDescription, result)
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def td_search_docs(
+    query: str,
+    kind: Literal["operator", "class", "article"] | None = None,
+    page: str | None = None,
+    offset: int = 0,
+    limit: int = 5,
+) -> schemas.DocSearchResult:
+    """Search TouchDesigner's offline documentation: operator reference, Python classes and
+    articles. TouchDesigner does not need to be running.
+
+    query: words to find, for example "feedback TOP" or "Par class clampMax".
+    kind: optional filter: "operator" reference pages, Python "class" pages, or "article".
+    page: optional, to search one page, for example "Noise_TOP" or "OP_Class". A class page
+    holds only that class's own members; inherited ones are on the parent class's page.
+    offset/limit: page through the passages. limit is capped at 20.
+    The first search after installing or updating TouchDesigner takes several seconds.
+    For exact parameter names and menu entries use td_describe_operator_type.
+    """
+    result = docs_index.search(query, kind, page, offset, limit)
+    return cast(schemas.DocSearchResult, result)
 
 
 @mcp.tool(annotations=_ADDITIVE)

@@ -2,7 +2,7 @@
 
 Type: spec
 Status: open
-Last verified: 2026-11-26 at `a569928`
+Last verified: 2026-11-26 at `fd2cdbd`
 
 How the TouchDesigner MCP server is structured and how it must behave. Tools are specified in `specs/TOOL_CATALOG.md`. Why these choices were made is in `decisions/`.
 
@@ -16,6 +16,9 @@ The server exists so Claude can **perceive, act, know, and iterate**:
 4. **Iterate**: render, judge, adjust, with undo available.
 
 A tool that does not serve one of these four is cut.
+
+"Know" has two sources, both from the installed build: parameters read through the bridge, and an
+offline documentation index the server builds itself, with no TouchDesigner running.
 
 ## Components
 
@@ -51,6 +54,9 @@ Long operations must not freeze TouchDesigner. The bridge enforces a per-request
 - Every mutating call runs in an undo block and is written to an audit log
   (`~/.td-mcp/audit.jsonl`, mode `0600`, set with `build_spike.py --audit-log`). It grows without
   limit; rotation is not built.
+- Reading an operator type creates a temporary operator in the bridge's own component. Hardware
+  types are never created for this, because creating them can ask for device permissions or open
+  sockets even with cooking off (`research/PHASE3_KNOWLEDGE_RESULTS.md`).
 - Mutating routes take `POST` with a JSON body. The bridge refuses to change its own component,
   `/ui` and `/sys`. This guards against mistakes only: parameter expressions are Python run by
   TouchDesigner, so a caller who can set one can reach anything, with or without
@@ -74,7 +80,7 @@ touchme/
   audits/       findings as found (created with the first audit)
   incidents/    what went wrong (created with the first incident)
 
-  src/td_mcp/   MCP server: server.py, client.py, tools/, schemas.py, errors.py, docs_index/
+  src/td_mcp/   MCP server: server.py, client.py, tools/, schemas.py, errors.py, docs_index.py
   bridge/       TD side: src/ (callbacks.py now; handlers/ and dispatch.py planned), build_spike.py,
                 and build/ (the built .tox and its token; gitignored, never committed)
   tests/        unit/ (fake bridge) and integration/ (real TouchDesigner, opt-in)

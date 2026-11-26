@@ -112,6 +112,60 @@ class ParameterList(TypedDict):
     parameters: list[ParameterDetail]
 
 
+class TypeParameter(TypedDict):
+    """A parameter of an operator type. Fields that do not apply are left out."""
+
+    name: str
+    label: NotRequired[str]
+    style: NotRequired[str]  # for example "Float", "Menu", "Toggle", "TOP"
+    page: NotRequired[str]
+    default: NotRequired[float | int | str | bool | None]
+    default_expr: NotRequired[str]  # set when the default is an expression
+    min: NotRequired[float]  # clamp limit
+    max: NotRequired[float]  # clamp limit
+    slider_range: NotRequired[list[float]]  # the UI slider's range; values may lie outside it
+    menu_names: NotRequired[list[str]]
+    menu_labels: NotRequired[list[str]]  # only when the call filters by name
+    help: NotRequired[str]  # shortened unless the call filters by name
+    read_only: NotRequired[bool]
+    custom: NotRequired[bool]
+    sequence: NotRequired[str]  # repeating block, such as "const" for const0name, const1name
+
+
+class OperatorTypeDescription(TypedDict):
+    type: str
+    family: str
+    label: str | None
+    source: str  # "live" | "help_file"
+    note: str | None  # why the description is partial, and what to do instead
+    min_inputs: int | None
+    max_inputs: int | None  # 9999 on a Composite TOP, which takes any number
+    pages: list[str]
+    also_creates: list[str]  # types TouchDesigner adds alongside, such as docked DATs
+    parameter_count: int  # parameters matching the filters, across all pages of results
+    offset: int
+    limit: int  # the page size actually applied (requests are capped)
+    next_offset: int | None
+    parameters: list[TypeParameter]
+
+
+class DocPassage(TypedDict):
+    page: str  # pass as `page` to search within it
+    title: str
+    kind: str  # "operator" | "class" | "article"
+    section: str  # heading path, empty for a page's opening text
+    text: str
+    all_words: bool  # False when the passage lacks some of the query's words
+    url: str
+
+
+class DocSearchResult(TypedDict):
+    query: str
+    offset: int
+    next_offset: int | None
+    results: list[DocPassage]
+
+
 class ParameterChange(TypedDict):
     """One input to td_set_parameters: a name plus exactly one of value, expr or bind."""
 
