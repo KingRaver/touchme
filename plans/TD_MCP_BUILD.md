@@ -106,7 +106,7 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
     docs.derivative.ca's offline help — reachable this session without TouchDesigner running,
     from the installed build at `/Applications/TouchDesigner.app` — describes them). Behavior
     is specified in `specs/TOOL_CATALOG.md`.
-  - **Left unchecked:** no licensed TouchDesigner was open this session, so none of this has
+  - Left unchecked: no licensed TouchDesigner was open this session, so none of this has
     been run live (`tests/integration` needs one). Specific open points for that run, beyond
     the usual first-live-pass fixes Phases 1-3 each needed:
     - `_perform_values()` (bridge) assumes the operator type string is `performCHOP` and that
@@ -132,7 +132,7 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
     the stdio server with TouchDesigner in front. The points above are answered in
     `research/PHASE4_LIVE_RESULTS.md`, which also lists two problems found in earlier phases'
     tools and not fixed, and what was not tested.
-  - Note 2026-11-26: the two problems in earlier phases' tools (non-finite parameter values and
+  - **Note 2026-11-26:** the two problems in earlier phases' tools (non-finite parameter values and
     space-separated name patterns) are fixed on the same uncommitted tree. ruff and pyright
     clean, 442 unit tests pass, and all 78 integration tests passed in one live run on
     2025.33230. Evidence in `research/PHASE4_LIVE_RESULTS.md`.
