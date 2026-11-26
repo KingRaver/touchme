@@ -10,17 +10,27 @@ GET /project-info, GET /errors?path=<absolute path>,
 GET /snapshot?path=<absolute path>&maxdepth=<int>,
 GET /children?path=<absolute path>&family=<str>&type=<str>&offset=<int>&limit=<int>,
 GET /operator?path=<absolute path>, GET /parameters?path=<absolute path>&name=<pattern>,
-GET /describe-type?type=<str>&name=<pattern>&page=<str>&offset=<int>&limit=<int>.
+GET /describe-type?type=<str>&name=<pattern>&page=<str>&offset=<int>&limit=<int>,
+GET /performance?path=<absolute path>&top_n=<int>&maxdepth=<int>,
+GET /chop?path=<absolute CHOP path>&channels=<pattern>&start=<int>&count=<int>,
+GET /dat?path=<absolute DAT path>&row_offset=<int>&row_limit=<int>,
+GET /sop-info?path=<absolute SOP path>,
+GET /contact-cells?paths=<comma-separated paths>&frames=<comma-separated numbers>&format=png|jpg.
 /describe-type reads a type's parameters from a temporary operator that it creates with cooking
 off inside the bridge's own component and destroys before replying, outside any undo block.
 Hardware types (DEVICE_TYPE_PREFIXES) are never created: creating some of them asked for camera
 permission or opened network sockets (research/PHASE3_KNOWLEDGE_RESULTS.md).
+/performance reads from a temporary Perform CHOP, created, cooked and destroyed the same way,
+also outside any undo block. /contact-cells, when `frames` is given, moves the project timeline
+to each requested frame and restores it before replying. Stateful networks cooked along the way
+keep what changed (a feedback loop advances, a Trail CHOP records the frames), with no undo
+entry or audit line.
 Change routes (POST, JSON object body): /create, /connect, /disconnect, /set-parameters,
-/delete, /layout, /undo, /redo. Each change is one TouchDesigner undo entry and is written to the
-audit log before it is applied; if the log cannot be written, nothing is changed. The bridge's
-own component and TouchDesigner's /ui and /sys networks cannot be changed through these routes.
-That guards against mistakes only: a parameter expression is Python run by TouchDesigner, so
-any caller that can set one can reach anything (decisions/0003).
+/delete, /layout, /undo, /redo, /timeline. Each change is one TouchDesigner undo entry and is
+written to the audit log before it is applied; if the log cannot be written, nothing is changed.
+The bridge's own component and TouchDesigner's /ui and /sys networks cannot be changed through
+these routes. That guards against mistakes only: a parameter expression is Python run by
+TouchDesigner, so any caller that can set one can reach anything (decisions/0003).
 
 Test builds only (build_spike.py --test-fixtures): GET /ensure-demo, which creates a demo TOP
 inside the bridge's own container, and GET /foreign-edit, which adds an undo entry this server
@@ -61,9 +71,10 @@ if TYPE_CHECKING:
 TOKEN = "__TOKEN__"
 _FIXTURES_FLAG = "__TEST_FIXTURES__"  # "1" or "0", set by build_spike.py
 ENABLE_TEST_FIXTURES = _FIXTURES_FLAG == "1"
-# 0.3.0 added the POST change routes and 0.4.0 added /describe-type. A server that requires
-# the newer version refuses an older bridge with a rebuild message instead of a "no route" error.
-API_VERSION = "0.4.0"
+# 0.3.0 added the POST change routes, 0.4.0 added /describe-type, and 0.5.0 added /performance,
+# /chop, /dat, /sop-info, /contact-cells and /timeline. A server that requires the newer version
+# refuses an older bridge with a rebuild message instead of a "no route" error.
+API_VERSION = "0.5.0"
 # Built from pieces so build_spike.py's replace of the token placeholder cannot rewrite it.
 _TOKEN_PLACEHOLDER = "__TOK" + "EN__"
 _AUDIT_SETTING = "__AUDIT_LOG__"  # a file path, set by build_spike.py
@@ -126,6 +137,46 @@ PARAMETER_HELP_FILE = "TDParameterHelp.json"
 _NO_HELP = "Help Not Available."
 _NAME_RULE = re.compile(r"[A-Za-z0-9_]+")
 _REDACTED = "<redacted>"
+# /performance: the temporary Perform CHOP's own name, each toggle parameter it turns on with the
+# channel that toggle outputs (the names differ; read live on 2025.33230,
+# research/PHASE4_LIVE_RESULTS.md; temperature and battery channels are left out), and the
+# ranking's page size.
+PERF_SCRATCH_NAME = "td_mcp_perf"
+PERF_CHANNELS = {
+	"fps": "fps",
+	"msec": "msec",
+	"droppedframes": "dropped_frames",
+	"gpumemused": "gpu_mem_used",
+	"totalgpumem": "total_gpu_mem",
+	"cpumemused": "cpu_mem_used",
+	"activeops": "active_ops",
+	"deactivatedops": "deactivated_ops",
+	"totalops": "total_ops",
+	"cookrate": "cookrate",
+	"cookrealtime": "cookrealtime",
+}
+DEFAULT_PERF_TOP_N = 20
+MAX_PERF_TOP_N = 200
+# /chop: sample-range and channel-count limits to protect context.
+DEFAULT_CHOP_SAMPLES = 100
+MAX_CHOP_SAMPLES = 2000
+MAX_CHOP_CHANNELS = 64
+MAX_CHOP_VALUES = 8000  # across all channels of one reply
+# /dat: row/column/text limits to protect context.
+DEFAULT_DAT_ROWS = 100
+MAX_DAT_ROWS = 500
+MAX_DAT_COLS = 64
+MAX_DAT_CELL_CHARS = 500
+MAX_DAT_TEXT_CHARS = 20000
+MAX_DAT_REPLY_CHARS = 40000  # across all cells of one reply; at least one row is returned
+# /contact-cells: a cell larger than MAX_CONTACT_CELL_PIXELS is scaled down, since a sheet
+# multiplies one capture's cost by its cell count.
+MAX_CONTACT_PATHS = 16
+MAX_CONTACT_FRAMES = 12
+MAX_CONTACT_CELLS = 48
+MAX_CONTACT_CELL_PIXELS = 480 * 480
+MAX_CONTACT_CELL_BYTES = 768 * 1024
+MAX_CONTACT_TOTAL_BYTES = 10 * 1024 * 1024
 
 
 def _header(request, name):
@@ -256,7 +307,10 @@ def _io_paths(ops):
 
 
 def _jsonable(value):
-	"""A Par's evaluated value is a number/string/bool, or an OP for an OP-type parameter."""
+	"""A Par's evaluated value is a number/string/bool, or an OP for an OP-type parameter.
+	A number that is not finite becomes "nan", "inf" or "-inf": JSON has no such numbers."""
+	if isinstance(value, float) and not math.isfinite(value):
+		return str(value)
 	if value is None or isinstance(value, (int, float, str, bool)):
 		return value
 	path = getattr(value, "path", None)
@@ -274,9 +328,10 @@ def _clamp_limit(par, limit_name, clamp_name):
 	and research/PHASE1_LIVE_RESULTS.md).
 	"""
 	try:
-		return getattr(par, limit_name) if getattr(par, clamp_name) else None
+		limit = getattr(par, limit_name) if getattr(par, clamp_name) else None
 	except Exception:
 		return None
+	return None if isinstance(limit, float) and not math.isfinite(limit) else limit
 
 
 def _par_detail(par):
@@ -511,13 +566,15 @@ def _operator(pars):
 def _parameters(pars):
 	path = pars.get("path")
 	name_pattern = pars.get("name")
+	# pars() takes several patterns as separate arguments; one "tx ty" string matches nothing.
+	patterns = (name_pattern or "").split()
 	target = _resolve_exact(path)
 	if target is None:
 		return _bad_path(path)
 	all_pars = _all_pars(target)
-	if name_pattern:
+	if patterns:
 		try:
-			allowed = {p.name for p in target.pars(name_pattern)}
+			allowed = {p.name for p in target.pars(*patterns)}
 		except Exception:
 			return {"error": "bad name pattern %r" % (name_pattern,)}
 		all_pars = [p for p in all_pars if p.name in allowed]
@@ -571,7 +628,7 @@ def _type_par(par, full):
 		put("min", _clamp_limit(par, "min", "clampMin"))
 		put("max", _clamp_limit(par, "max", "clampMax"))
 		low, high = read("normMin"), read("normMax")
-		if low is not None and high is not None:
+		if low is not None and high is not None and math.isfinite(low) and math.isfinite(high):
 			row["slider_range"] = [low, high]
 	# Menus, and strings that offer suggestions. Number presets and toggles are left out.
 	if read("isMenu") or read("isString"):
@@ -630,7 +687,7 @@ def _from_scratch(optype, family, name_pattern, page, offset, limit):
 		pages = list(dict.fromkeys(p.page.name for p in pars))
 		if name_pattern:
 			try:
-				allowed = {p.name for p in made.pars(name_pattern)}
+				allowed = {p.name for p in made.pars(*name_pattern.split())}
 			except Exception:
 				return {"error": "bad name pattern %r" % (name_pattern,)}
 			pars = [p for p in pars if p.name in allowed]
@@ -732,7 +789,415 @@ def _describe_type(pars):
 	if family is None:
 		return {"error": _unknown_type(optype, _operator_types())}
 	describe = _from_help_file if _is_device_type(optype, family) else _from_scratch
-	return describe(optype, family, pars.get("name"), pars.get("page"), offset, limit)
+	name = " ".join(str(pars.get("name") or "").split()) or None  # blank means no filter
+	return describe(optype, family, name, pars.get("page"), offset, limit)
+
+
+def _finite(value):
+	"""`value`, or None when it is missing or not a finite number (JSON has no NaN)."""
+	return value if value is not None and math.isfinite(value) else None
+
+
+def _perform_values():
+	"""Create a temporary Perform CHOP inside the bridge's own component, turn on
+	PERF_CHANNELS, force it to cook, read those channels, and destroy it. Returns the values
+	by toggle name, and the channel names that were not there to read. Nothing is left in the
+	project; like /describe-type's scratch operator, this runs outside any undo block."""
+	box = parent()
+	stale = box.op(PERF_SCRATCH_NAME)
+	if stale is not None:
+		stale.destroy()  # left by a request that never finished
+	perf = box.create("performCHOP", PERF_SCRATCH_NAME)
+	try:
+		for name in PERF_CHANNELS:
+			par = getattr(perf.par, name, None)
+			if par is not None:
+				par.val = True
+		perf.cook(force=True)
+		values, unread = {}, []
+		for name, channel in PERF_CHANNELS.items():
+			chan = perf.chan(channel)
+			values[name] = None if chan is None else _finite(chan.eval())
+			if values[name] is None:
+				unread.append(channel)
+		return values, unread
+	finally:
+		perf.destroy()
+
+
+def _operator_cost(target):
+	return {
+		"path": target.path,
+		"type": getattr(target, "type", None),
+		"family": getattr(target, "family", None),
+		"cpu_cook_ms": getattr(target, "cpuCookTime", None),
+		"gpu_cook_ms": getattr(target, "gpuCookTime", None),
+		"total_cooks": getattr(target, "totalCooks", None),
+		"cooked_this_frame": getattr(target, "cookedThisFrame", None),
+	}
+
+
+def _performance(pars):
+	path = pars.get("path", "/")
+	target = _resolve_exact(path)
+	if target is None:
+		return _bad_path(path)
+	try:
+		top_n = int(pars.get("top_n", DEFAULT_PERF_TOP_N))
+		depth = int(pars.get("maxdepth", MAX_SNAPSHOT_DEPTH))
+	except (TypeError, ValueError):
+		return {"error": "top_n and maxdepth must be integers"}
+	if top_n <= 0:
+		return {"error": "top_n must be > 0"}
+	top_n = min(top_n, MAX_PERF_TOP_N)
+	if depth < 0:
+		return {"error": "maxdepth must be >= 0"}
+	depth = min(depth, MAX_SNAPSHOT_DEPTH)
+	try:
+		values, unread = _perform_values()
+	except Exception as exc:
+		return {"error": "could not read the Perform CHOP: %s: %s" % (type(exc).__name__, exc)}
+	excluded = _excluded_roots(path)
+	descendants = target.findChildren(maxDepth=depth) if hasattr(target, "findChildren") else []
+	nodes = [target] + [n for n in descendants if not _is_under(n.path, excluded)]
+	truncated = len(nodes) > MAX_SNAPSHOT_OPERATORS
+	nodes = nodes[:MAX_SNAPSHOT_OPERATORS]
+	costed = sorted(
+		(_operator_cost(n) for n in nodes), key=lambda row: row["cpu_cook_ms"] or 0.0, reverse=True
+	)
+	realtime = values.get("cookrealtime")
+	return {
+		"fps": values.get("fps"),
+		"target_fps": values.get("cookrate"),
+		"frame_ms": values.get("msec"),
+		"dropped_frames": values.get("droppedframes"),
+		"realtime": bool(realtime) if realtime is not None else None,
+		"cpu_mem_mb": values.get("cpumemused"),
+		"gpu_mem_mb": values.get("gpumemused"),
+		"gpu_mem_total_mb": values.get("totalgpumem"),
+		"active_ops": values.get("activeops"),
+		"deactivated_op_calls": values.get("deactivatedops"),
+		"total_ops": values.get("totalops"),
+		"unread_channels": unread,
+		"path": path,
+		"max_depth": depth,
+		"operator_count": len(nodes),
+		"truncated": truncated,
+		"excluded": excluded,
+		"top_cpu_cost": costed[:top_n],
+	}
+
+
+def _sample(value):
+	"""A sample as a number, or "nan", "inf" or "-inf": JSON has no such numbers, and they are
+	what a caller debugging a CHOP most needs to see."""
+	value = float(value)
+	return value if math.isfinite(value) else str(value)
+
+
+def _read_chop(pars):
+	path = pars.get("path")
+	target = _resolve_exact(path)
+	if target is None:
+		return _bad_path(path)
+	if getattr(target, "family", None) != "CHOP":
+		return {"error": "%s is a %s, not a CHOP." % (path, target.family)}
+	name_pattern = pars.get("channels")
+	try:
+		start = int(pars.get("start", 0))
+		count = int(pars.get("count", DEFAULT_CHOP_SAMPLES))
+	except (TypeError, ValueError):
+		return {"error": "start and count must be integers"}
+	if start < 0 or count <= 0:
+		return {"error": "start must be >= 0 and count must be > 0"}
+	count = min(count, MAX_CHOP_SAMPLES)
+	# chans() takes several patterns as separate arguments; one "tx ty" string matches nothing.
+	patterns = (name_pattern or "").split()
+	try:
+		matched = list(target.chans(*patterns))
+	except Exception:
+		return {"error": "bad channel pattern %r" % (name_pattern,)}
+	channels_truncated = len(matched) > MAX_CHOP_CHANNELS
+	shown = matched[:MAX_CHOP_CHANNELS]
+	num_samples = int(getattr(target, "numSamples", 0) or 0)
+	clipped_start = min(start, num_samples)
+	if shown:
+		count = min(count, MAX_CHOP_VALUES // len(shown))
+	clipped_end = min(clipped_start + count, num_samples)
+	channels = []
+	for chan in shown:
+		try:
+			values = [_sample(chan[i]) for i in range(clipped_start, clipped_end)]
+		except Exception as exc:
+			return {"error": "could not read channel %r of %s: %s" % (chan.name, path, exc)}
+		channels.append({"name": chan.name, "values": values})
+	next_offset = clipped_end if clipped_end < num_samples else None
+	return {
+		"path": target.path,
+		"num_channels": int(getattr(target, "numChans", len(matched)) or 0),
+		"matched_channels": len(matched),
+		"channels_truncated": channels_truncated,
+		"num_samples": num_samples,
+		"rate": getattr(target, "rate", None),
+		"start": clipped_start,
+		"count": clipped_end - clipped_start,
+		"next_offset": next_offset,
+		"channels": channels,
+	}
+
+
+def _clip_text_dat(text, limit):
+	"""Like _clip_text, but keeps internal whitespace: a DAT cell may hold structured text
+	(a script, a path), which squashing would mangle."""
+	return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _without_token(text):
+	"""The bridge's own script holds the bearer token, and a Select DAT can copy it elsewhere.
+	Replaced before clipping, so no part of it survives a cut."""
+	return text.replace(TOKEN, _REDACTED)
+
+
+def _dat_cell(target, row, col):
+	cell = target[row, col]
+	value = _without_token(str(cell.val if cell is not None else ""))
+	return _clip_text_dat(value, MAX_DAT_CELL_CHARS)
+
+
+def _read_dat(pars):
+	path = pars.get("path")
+	target = _resolve_exact(path)
+	if target is None:
+		return _bad_path(path)
+	if getattr(target, "family", None) != "DAT":
+		return {"error": "%s is a %s, not a DAT." % (path, target.family)}
+	is_table = bool(getattr(target, "isTable", True))
+	if not is_table:
+		text = _without_token(str(getattr(target, "text", "") or ""))
+		return {
+			"path": target.path,
+			"is_table": False,
+			"num_rows": 0,
+			"num_cols": 0,
+			"row_offset": 0,
+			"row_limit": 0,
+			"next_row_offset": None,
+			"columns_truncated": False,
+			"rows": [],
+			"text": _clip_text_dat(text, MAX_DAT_TEXT_CHARS),
+		}
+	try:
+		row_offset = int(pars.get("row_offset", 0))
+		row_limit = int(pars.get("row_limit", DEFAULT_DAT_ROWS))
+	except (TypeError, ValueError):
+		return {"error": "row_offset and row_limit must be integers"}
+	if row_offset < 0 or row_limit <= 0:
+		return {"error": "row_offset must be >= 0 and row_limit must be > 0"}
+	row_limit = min(row_limit, MAX_DAT_ROWS)
+	num_rows = int(getattr(target, "numRows", 0) or 0)
+	num_cols = int(getattr(target, "numCols", 0) or 0)
+	columns_truncated = num_cols > MAX_DAT_COLS
+	cols_shown = min(num_cols, MAX_DAT_COLS)
+	row_offset = min(row_offset, num_rows)
+	rows = []
+	characters = 0
+	for r in range(row_offset, min(row_offset + row_limit, num_rows)):
+		try:
+			row = [_dat_cell(target, r, c) for c in range(cols_shown)]
+		except Exception as exc:
+			return {"error": "could not read row %d of %s: %s" % (r, path, exc)}
+		characters += sum(len(cell) for cell in row)
+		if rows and characters > MAX_DAT_REPLY_CHARS:
+			break
+		rows.append(row)
+	row_end = row_offset + len(rows)
+	return {
+		"path": target.path,
+		"is_table": True,
+		"num_rows": num_rows,
+		"num_cols": num_cols,
+		"row_offset": row_offset,
+		"row_limit": len(rows),
+		"next_row_offset": row_end if row_end < num_rows else None,
+		"columns_truncated": columns_truncated,
+		"rows": rows,
+		"text": None,
+	}
+
+
+def _attribute_names(attribs):
+	"""Attribute names from a td.Attributes collection.
+
+	docs.derivative.ca documents only [name] access, but iterating one worked on 2025.33230
+	(research/PHASE4_LIVE_RESULTS.md); P is not among them. A build where it cannot be
+	iterated reports an empty list rather than failing the call.
+	"""
+	try:
+		return sorted(attr.name for attr in attribs)
+	except Exception:
+		return []
+
+
+def _position(value):
+	if value is None:
+		return None
+	try:
+		position = [float(value[0]), float(value[1]), float(value[2])]
+	except Exception:
+		return None
+	return position if all(math.isfinite(v) for v in position) else None
+
+
+def _group_names(groups):
+	"""A SOP's group names, without TouchDesigner's own "__..." bookkeeping groups."""
+	return sorted(name for name in (groups or {}) if not name.startswith("__"))
+
+
+def _read_sop_info(pars):
+	path = pars.get("path")
+	target = _resolve_exact(path)
+	if target is None:
+		return _bad_path(path)
+	if getattr(target, "family", None) != "SOP":
+		return {"error": "%s is a %s, not a SOP." % (path, target.family)}
+	return {
+		"path": target.path,
+		"num_points": int(getattr(target, "numPoints", 0) or 0),
+		"num_prims": int(getattr(target, "numPrims", 0) or 0),
+		"num_vertices": int(getattr(target, "numVertices", 0) or 0),
+		"min": _position(getattr(target, "min", None)),
+		"max": _position(getattr(target, "max", None)),
+		"size": _position(getattr(target, "size", None)),
+		"point_groups": _group_names(getattr(target, "pointGroups", None)),
+		"prim_groups": _group_names(getattr(target, "primGroups", None)),
+		"point_attributes": _attribute_names(getattr(target, "pointAttribs", None) or ()),
+		"prim_attributes": _attribute_names(getattr(target, "primAttribs", None) or ()),
+		"vertex_attributes": _attribute_names(getattr(target, "vertexAttribs", None) or ()),
+	}
+
+
+def _split_list(value):
+	return [item for item in (value or "").split(",") if item]
+
+
+def _scaled_down(target, fmt):
+	"""(data, width, height) of a TOP shrunk to the cell limit, without creating an operator.
+	numpyArray() is float RGBA with the bottom row first (research/PHASE0_SPIKE_RESULTS.md)."""
+	import cv2  # pyright: ignore[reportMissingImports]  # ships in TouchDesigner's Python
+	import numpy  # pyright: ignore[reportMissingImports]
+
+	scale = math.sqrt(MAX_CONTACT_CELL_PIXELS / (target.width * target.height))
+	width, height = max(1, int(target.width * scale)), max(1, int(target.height * scale))
+	pixels = target.numpyArray()
+	small = cv2.resize(pixels[::-1], (width, height), interpolation=cv2.INTER_AREA)
+	eight = (numpy.clip(numpy.nan_to_num(small), 0, 1) * 255 + 0.5).astype(numpy.uint8)
+	if eight.ndim == 3:
+		eight = eight[:, :, [2, 1, 0]]  # RGB(A) to the BGR order OpenCV writes
+	encoded, data = cv2.imencode("." + fmt, eight)
+	if not encoded:
+		raise RuntimeError("OpenCV could not encode the image")
+	return bytes(data), width, height
+
+
+def _contact_cell(target, fmt):
+	"""(data, width, height, None) or (None, 0, 0, error message)."""
+	if target.width * target.height > MAX_PIXELS:
+		return None, 0, 0, "%s is %dx%d, over the %d-pixel limit." % (
+			target.path, target.width, target.height, MAX_PIXELS
+		)
+	if target.width * target.height > MAX_CONTACT_CELL_PIXELS:
+		data, width, height = _scaled_down(target, fmt)
+	else:
+		data = bytes(target.saveByteArray("." + fmt))
+		width, height = target.width, target.height
+	if len(data) > MAX_CONTACT_CELL_BYTES:
+		return None, 0, 0, (
+			"%s encoded to %d bytes, over the %d-byte contact-sheet cell limit; use jpg."
+			% (target.path, len(data), MAX_CONTACT_CELL_BYTES)
+		)
+	return data, width, height, None
+
+
+def _frame_range_error(clock, frames):
+	"""Why these frames cannot be shown, or None. TouchDesigner silently wraps a frame outside
+	the playback range to another one."""
+	low, high = clock.rangeStart, clock.rangeEnd
+	for frame in frames:
+		if frame != int(frame):
+			return "frame %s is not a whole number" % frame
+		if not low <= frame <= high:
+			return "frame %d is outside the timeline's playback range %d to %d" % (frame, low, high)
+	return None
+
+
+def _contact_cells(pars):
+	fmt = pars.get("format", "png")
+	if fmt not in ("png", "jpg"):
+		return {"error": "format must be png or jpg"}
+	paths = _split_list(pars.get("paths"))
+	if not paths:
+		return {"error": "paths must list at least one absolute TOP path"}
+	if len(paths) > MAX_CONTACT_PATHS:
+		return {"error": "at most %d paths per call" % MAX_CONTACT_PATHS}
+	targets = []
+	for path in paths:
+		target = _resolve_exact(path)
+		if target is None:
+			return _bad_path(path)
+		if target.family != "TOP":
+			return {"error": "%s is a %s, not a TOP." % (path, target.family)}
+		targets.append(target)
+	frames = []
+	for token in _split_list(pars.get("frames")):
+		try:
+			frames.append(float(token))
+		except ValueError:
+			return {"error": "bad frame number %r" % (token,)}
+	if len(frames) > MAX_CONTACT_FRAMES:
+		return {"error": "at most %d frames per call" % MAX_CONTACT_FRAMES}
+	combos = [(t, f) for t in targets for f in frames] if frames else [(t, None) for t in targets]
+	if len(combos) > MAX_CONTACT_CELLS:
+		return {"error": "%d cells requested, over the %d-cell limit" % (len(combos), MAX_CONTACT_CELLS)}
+	clock = None
+	if frames:
+		clock = getattr(op("/"), "time", None)
+		if clock is None:
+			return {"error": "the project root has no Time Component, so frames cannot be shown"}
+		error = _frame_range_error(clock, frames)
+		if error:
+			return {"error": error}
+	original_frame = clock.frame if clock is not None else None
+	cells = []
+	total_bytes = 0
+	try:
+		for target, frame in combos:
+			if clock is not None:
+				clock.frame = frame
+				if clock.frame != frame:
+					return {"error": "TouchDesigner did not move to frame %d" % frame}
+				target.cook(force=True)
+			data, width, height, error = _contact_cell(target, fmt)
+			if data is None:
+				return {"error": error}
+			total_bytes += len(data)
+			if total_bytes > MAX_CONTACT_TOTAL_BYTES:
+				return {
+					"error": "the requested cells total over %d bytes; ask for fewer paths, "
+					"frames, or use jpg." % MAX_CONTACT_TOTAL_BYTES
+				}
+			cells.append(
+				{
+					"path": target.path,
+					"frame": frame,
+					"width": width,
+					"height": height,
+					"data_b64": base64.b64encode(data).decode("ascii"),
+				}
+			)
+	finally:
+		if clock is not None:
+			clock.frame = original_frame
+	return {"format": fmt, "cells": cells}
 
 
 class _Refused(Exception):
@@ -1172,9 +1637,14 @@ def _verify_one(target, par, kind, new):
 			raise _Refused("%s cannot be bound to itself" % par.name)
 	if kind in ("expr", "bind"):
 		try:
-			par.eval()
+			value = par.eval()
 		except Exception as exc:
 			raise _Refused("%s for %s does not evaluate: %s" % (kind, par.name, exc))
+		if isinstance(value, float) and not math.isfinite(value):
+			# It does evaluate, so it is applied; an expression can be non-finite only for now.
+			notes["warning"] = "the %s evaluates to %s" % (
+				kind, _REDACTED if _is_secret(par) else value
+			)
 		return notes
 	stored = par.eval()
 	if par.isMenu and not par.isString:
@@ -1423,6 +1893,97 @@ def _redo(body, context):
 	return _history(context, body, redo=True)
 
 
+def _frame_number(body, key):
+	value = body.get(key)
+	if (
+		isinstance(value, bool)
+		or not isinstance(value, (int, float))
+		or not math.isfinite(value)
+		or value != int(value)
+	):
+		raise _Refused("%s must be a whole number" % key)
+	return int(value)
+
+
+# In the order they are written. A frame set before its range is wrapped into the old one, and
+# one set before playback stops moves on by a frame (research/PHASE4_LIVE_RESULTS.md).
+TIMELINE_ATTRIBUTES = ("start", "end", "rangeStart", "rangeEnd", "play", "frame")
+
+
+def _timeline_state(clock):
+	return {
+		"frame": clock.frame,
+		"rate": clock.rate,
+		"start": clock.start,
+		"end": clock.end,
+		"range_start": clock.rangeStart,
+		"range_end": clock.rangeEnd,
+		"play": bool(clock.play),
+	}
+
+
+def _write_timeline(clock, values):
+	for name in TIMELINE_ATTRIBUTES:
+		if name in values:
+			setattr(clock, name, values[name])
+
+
+def _restore_timeline(isUndo, info):
+	"""Undo callback: TouchDesigner's undo does not cover Time Component attributes set from
+	Python (research/PHASE4_LIVE_RESULTS.md)."""
+	_write_timeline(op("/").time, info["before" if isUndo else "after"])
+
+
+def _timeline(body, context):
+	_only_keys(body, "play", "frame", "start", "end")
+	if not body:
+		raise _Refused("give at least one of play, frame, start or end")
+	clock = getattr(op("/"), "time", None)
+	if clock is None:
+		raise _Refused("the project root has no Time Component to control")
+	changes = {}
+	if "play" in body:
+		if not isinstance(body["play"], bool):
+			raise _Refused("play must be true or false")
+		changes["play"] = body["play"]
+	for key in ("start", "end", "frame"):
+		if key in body:
+			changes[key] = _frame_number(body, key)
+	# The playhead stays inside a second, narrower range, so a new start or end moves both.
+	if "start" in changes:
+		changes["rangeStart"] = changes["start"]
+	if "end" in changes:
+		changes["rangeEnd"] = changes["end"]
+	low = changes.get("rangeStart", clock.rangeStart)
+	high = changes.get("rangeEnd", clock.rangeEnd)
+	ranged = "start" in changes or "end" in changes
+	if ranged and (low > high or changes.get("start", clock.start) > changes.get("end", clock.end)):
+		raise _Refused("the range would end before it starts; give both start and end")
+	if "frame" in changes and not low <= changes["frame"] <= high:
+		raise _Refused("frame %d is outside the playback range %d to %d" % (changes["frame"], low, high))
+	if ranged and "frame" not in changes and not low <= clock.frame <= high:
+		# TouchDesigner would move the playhead only after this reply, to a frame of its choosing.
+		changes["frame"] = low
+
+	def apply():
+		previous = _timeline_state(clock)
+		touched = set(changes)
+		if ranged:
+			touched.add("frame")  # TouchDesigner moves the playhead into a new range
+		info = {"before": {name: getattr(clock, name) for name in touched}, "after": {}}
+		ui.undo.addCallback(_restore_timeline, info)  # first, so a failure below rolls back
+		_write_timeline(clock, changes)
+		for name, value in changes.items():
+			# While playing, the frame moves on by itself.
+			if getattr(clock, name) != value and not (name == "frame" and clock.play):
+				raise _Refused("TouchDesigner did not set the timeline's %s to %s" % (name, value))
+		info["after"] = {name: getattr(clock, name) for name in touched}
+		return {"previous": previous, "timeline": _timeline_state(clock)}
+
+	summary = ", ".join("%s=%s" % (key, body[key]) for key in sorted(body))
+	return _apply_change(context, summary, dict(body), apply)
+
+
 def _run_change(route, body):
 	context = {"id": secrets.token_hex(4), "action": route.lstrip("/")}
 	try:
@@ -1471,6 +2032,11 @@ ROUTES = {
 	"/operator": _operator,
 	"/parameters": _parameters,
 	"/describe-type": _describe_type,
+	"/performance": _performance,
+	"/chop": _read_chop,
+	"/dat": _read_dat,
+	"/sop-info": _read_sop_info,
+	"/contact-cells": _contact_cells,
 }
 if ENABLE_TEST_FIXTURES:
 	ROUTES["/ensure-demo"] = _ensure_demo_route
@@ -1484,6 +2050,7 @@ CHANGE_ROUTES = {
 	"/layout": _layout,
 	"/undo": _undo,
 	"/redo": _redo,
+	"/timeline": _timeline,
 }
 
 

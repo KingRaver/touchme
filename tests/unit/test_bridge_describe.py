@@ -86,9 +86,9 @@ class Scratch:
             path=self.path + "/made", label="Noise", type=optype[:-3], family=optype[-3:],
             minInputs=0, maxInputs=2, builtinPars=self.world.pars, customPars=self.world.custom,
         )
-        made.pars = lambda pattern: [
+        made.pars = lambda *patterns: [
             p for p in made.builtinPars + made.customPars
-            if any(fnmatch.fnmatch(p.name, one) for one in pattern.split())
+            if any(fnmatch.fnmatch(p.name, one) for one in patterns)
         ]
         self.kids = [made]
         if optype == "glslTOP":

@@ -76,7 +76,7 @@ fresh per-build token):
 python3 bridge/build_spike.py            # writes bridge/build/td_mcp_bridge.tox and token.txt
 ```
 
-The bridge can change the open project (create, wire, set, delete, undo). Every change it is
+The bridge can change the open project (create, wire, set, delete, move the timeline, undo). Every change it is
 asked to make is recorded in `~/.td-mcp/audit.jsonl`; add `--audit-log PATH` to the build to
 put the log elsewhere. Each change is one undo entry in TouchDesigner, so it can also be
 reversed there with Undo. A parameter expression is Python that TouchDesigner runs, so approve

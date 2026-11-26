@@ -172,3 +172,13 @@ def test_describe_does_not_create_a_camera(bridge):
 
 def test_describe_refuses_unknown_types_with_suggestions(bridge):
     assert "noiseTOP" in refused("td_describe_operator_type", type="noise")
+
+
+def test_describe_takes_name_patterns_separated_by_spaces():
+    def names(pattern):
+        found = ok("td_describe_operator_type", type="noiseTOP", name=pattern, limit=250)
+        return sorted(p["name"] for p in found["parameters"])
+
+    assert names("tx ty") == ["tx", "ty"]
+    assert names("seed  tx") == ["seed", "tx"]
+    assert names("nomatch period") == ["period"]

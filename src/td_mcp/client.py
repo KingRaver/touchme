@@ -23,8 +23,8 @@ DEFAULT_TIMEOUT_S = 10.0
 # package's version. MIN is the oldest bridge build this client will talk to; EXPECTED is
 # what it was built and tested against. A bridge below MIN is refused outright so a stale
 # bridge fails with "rebuild it" instead of a confusing 404 on a route it does not have yet.
-MIN_API_VERSION = "0.4.0"
-EXPECTED_API_VERSION = "0.4.0"
+MIN_API_VERSION = "0.5.0"
+EXPECTED_API_VERSION = "0.5.0"
 # The bridge's Web Server DAT listens on IPv4 127.0.0.1 only (Phase 0), and "localhost" can
 # resolve to ::1 first and be refused, so no other spelling is accepted.
 _LOOPBACK_HOSTS = {"127.0.0.1"}
@@ -94,6 +94,15 @@ def _check_api_version(body: dict[str, Any]) -> None:
 class Capture:
     data: bytes
     format: str
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class ContactCell:
+    path: str
+    frame: float | None
+    data: bytes
     width: int
     height: int
 
@@ -343,3 +352,55 @@ class BridgeClient:
         if name:
             params["name"] = name
         return self._checked_result("/parameters", params)
+
+    def get_performance(self, path: str = "/", top_n: int = 20, max_depth: int = 8) -> dict[str, Any]:
+        return self._checked_result(
+            "/performance", {"path": path, "top_n": top_n, "maxdepth": max_depth}
+        )
+
+    def read_chop(
+        self, path: str, channels: str | None = None, start: int = 0, count: int = 100
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"path": path, "start": start, "count": count}
+        if channels:
+            params["channels"] = channels
+        return self._checked_result("/chop", params)
+
+    def read_dat(self, path: str, row_offset: int = 0, row_limit: int = 100) -> dict[str, Any]:
+        return self._checked_result(
+            "/dat", {"path": path, "row_offset": row_offset, "row_limit": row_limit}
+        )
+
+    def read_sop_info(self, path: str) -> dict[str, Any]:
+        return self._checked_result("/sop-info", {"path": path})
+
+    def timeline(
+        self,
+        play: bool | None = None,
+        frame: float | None = None,
+        start: float | None = None,
+        end: float | None = None,
+    ) -> dict[str, Any]:
+        return self._change("/timeline", {"play": play, "frame": frame, "start": start, "end": end})
+
+    def contact_cells(
+        self, paths: list[str], frames: list[float] | None = None, fmt: str = "png"
+    ) -> list[ContactCell]:
+        params: dict[str, Any] = {"paths": ",".join(paths), "format": fmt}
+        if frames:
+            params["frames"] = ",".join(str(f) for f in frames)
+        result = self._checked_result("/contact-cells", params)
+        try:
+            cells = [
+                ContactCell(
+                    path=str(cell["path"]),
+                    frame=float(cell["frame"]) if cell.get("frame") is not None else None,
+                    data=base64.b64decode(cell["data_b64"], validate=True),
+                    width=int(cell["width"]),
+                    height=int(cell["height"]),
+                )
+                for cell in result["cells"]
+            ]
+        except (KeyError, TypeError, ValueError) as exc:  # binascii.Error is a ValueError
+            raise BridgeError(_UNEXPECTED) from exc
+        return cells

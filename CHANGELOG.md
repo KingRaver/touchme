@@ -2,6 +2,32 @@
 
 Newest first. Progress and evidence for planned work live in [plans/TD_MCP_BUILD.md](plans/TD_MCP_BUILD.md); this file records what changed and why.
 
+## 2026-11-26: Phase 4, performance and data
+
+### Added
+- `td_get_performance`: frame rate, frame time, dropped frames, memory and operator counts, and the operators with the highest last CPU cook time.
+- `td_read_chop`, `td_read_dat`, `td_read_sop_info`: channel samples, table rows or text, and geometry counts, bounds, groups and attribute names, each with reply limits.
+- `td_timeline`: play, pause, seek and set the range of the root timeline. `td_undo` reverses it.
+- `td_capture_contact_sheet`: several TOPs, timeline frames, or both, tiled into one image. Large TOPs are scaled down.
+- `research/PHASE4_LIVE_RESULTS.md`: how the Perform CHOP, the Time COMP and frame sampling behave on the live build.
+
+### Changed
+- The bridge `API_VERSION` and the server's minimum are now `0.5.0`: rebuild the bridge and load the new `.tox`.
+- Pillow is now a runtime dependency, because the server tiles contact sheets: run `uv sync`.
+- `td_timeline` and `td_capture_contact_sheet` are annotated destructive: the first overwrites the playhead and range, the second can change stateful networks.
+
+### Fixed
+- A parameter value that is NaN or infinite no longer breaks `td_set_parameters`, `td_get_parameters` or `td_get_operator`. It reads as `"nan"`, `"inf"` or `"-inf"`, and an expression or bind that evaluates to one is applied with a `warning`.
+- `td_get_parameters` and `td_describe_operator_type` accept several name patterns separated by spaces; before, they matched nothing.
+
+### Security
+- DAT reads replace the bridge token with `<redacted>`, since the bridge's own script holds it. A network that transforms the text could still show it.
+
+### Known gaps
+- Contact-sheet frames follow what is computed from the timeline frame. `absTime`, LFO and time-sliced Noise CHOPs do not.
+- `td_capture_contact_sheet` with `frames` changes stateful networks it cooks: a feedback loop advances a step and a Trail CHOP records the frames. `td_undo` does not reverse this, and it is not in the audit log.
+- Not checked live: time-dependent media or Cache operators in contact-sheet frames, a Trail CHOP with Grow Length on, a large user project, a timeline with its own Time COMP, and `POP` operators.
+
 ## 2026-11-26: Phase 3, knowledge
 
 ### Added
