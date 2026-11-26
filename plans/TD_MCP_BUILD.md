@@ -2,7 +2,7 @@
 
 Type: plan
 Status: open
-Last verified: 2026-11-26 at `369aabd`
+Last verified: 2026-11-26 at `a569928`
 
 This plan owns all progress for building the server. Other documents link here and do not restate status.
 
@@ -79,8 +79,10 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
 ### Phase 2: Construction
 
 - [x] Undo blocks and audit log (before any mutating tool ships)
+  - Note 2026-11-26: the verified code is committed as `a569928`.
   - Verified 2026-11-26 on the uncommitted working tree over `a2d8312`: one named undo entry per change, rollback on failure and an audit line before and after, in `bridge/src/callbacks.py` (bridge API `0.3.0`). Live on 2025.33230: undo, redo, rollback, refusal to undo an entry the server did not make, and the log's contents and `0600` mode (`tests/integration/test_construction.py`). Unit tests only: an unwritable log and disabled undo both leave the project unchanged (`tests/unit/test_bridge_changes.py`). TouchDesigner behavior the design depends on is in `research/PHASE2_UNDO_RESULTS.md`.
 - [x] `td_create_operator`, `td_connect`, `td_disconnect`, `td_set_parameters`, `td_delete_operator`, `td_layout`, `td_undo`, `td_redo`
+  - Note 2026-11-26: the verified code is committed as `a569928`.
   - Verified 2026-11-26 on the uncommitted working tree over `a2d8312`: ruff and pyright clean, 268 unit tests pass, and all 21 integration tests passed in one live run through the stdio server with TouchDesigner in front. Behavior is specified in `specs/TOOL_CATALOG.md`. `td_set_parameters` sets bind references, not CHOP or DAT exports, which the parameter API exposes read-only. Not checked: how `td_layout`'s result looks in the editor.
 
 ### Phase 3: Knowledge

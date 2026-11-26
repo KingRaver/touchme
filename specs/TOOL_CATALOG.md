@@ -2,7 +2,7 @@
 
 Type: spec
 Status: open
-Last verified: 2026-11-26 at `369aabd`
+Last verified: 2026-11-26 at `a569928`
 
 The MCP tools the server exposes. All names use a `td_` prefix. Read-only tools carry `readOnlyHint`. Tools that delete or overwrite carry `destructiveHint`. Structure and constraints are in `specs/ARCHITECTURE.md`. Build order is in `plans/TD_MCP_BUILD.md`.
 

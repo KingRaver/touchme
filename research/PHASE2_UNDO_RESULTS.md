@@ -2,9 +2,9 @@
 
 Type: research
 Status: complete-with-open-items (see "Not tested")
-Last verified: 2026-11-26 at `a2d8312`
+Last verified: 2026-11-26 at `a569928`
 
-How the TouchDesigner scripting APIs behind the construction tools behaved on a live **2025.33230** (macOS, arm64, non-commercial license). Measured with a throwaway probe component (fixed routes only, no exec endpoint, kept outside this repository) in a second TouchDesigner instance, so the operator's own session was not touched. API names were first checked in the offline help shipped with that build (`Undo_Class`, `Connector_Class`, `Par_Class`, `OP_Class`, `COMP_Class`, `Td_Module`). The construction code these results shaped was not yet committed on top of `a2d8312`.
+How the TouchDesigner scripting APIs behind the construction tools behaved on a live **2025.33230** (macOS, arm64, non-commercial license). Measured with a throwaway probe component (fixed routes only, no exec endpoint, kept outside this repository) in a second TouchDesigner instance, so the operator's own session was not touched. API names were first checked in the offline help shipped with that build (`Undo_Class`, `Connector_Class`, `Par_Class`, `OP_Class`, `COMP_Class`, `Td_Module`). The construction code these results shaped is committed as `a569928`.
 
 ## Callbacks and requests
 
