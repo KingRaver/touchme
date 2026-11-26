@@ -2,9 +2,9 @@
 
 Type: research
 Status: complete-with-open-items (see "Not tested")
-Last verified: 2026-11-26 at `e257c98` (measurements taken with an uncommitted working tree on top of it)
+Last verified: 2026-11-26 at `fd2cdbd`
 
-What the knowledge tools rest on: how TouchDesigner **2025.33230** (macOS, arm64, non-commercial license) behaves when an operator is created only to read its parameters, and what the documentation shipped with that build contains. The operator measurements come from a throwaway probe component (fixed routes only, no exec endpoint, kept outside this repository) in its own TouchDesigner instance.
+What the knowledge tools rest on: how TouchDesigner **2025.33230** (macOS, arm64, non-commercial license) behaves when an operator is created only to read its parameters, and what the documentation shipped with that build contains. The operator measurements come from a throwaway probe component (fixed routes only, no exec endpoint, kept outside this repository) in its own TouchDesigner instance. The code these results shaped is committed as `fd2cdbd`.
 
 ## Reading a type's parameters
 
