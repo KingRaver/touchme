@@ -3,7 +3,7 @@ import base64
 import httpx
 import pytest
 
-from td_mcp.client import BridgeClient
+from td_mcp.client import MIN_API_VERSION, BridgeClient
 from td_mcp.errors import BridgeError
 
 PNG = b"\x89PNG\r\n\x1a\nfake"
@@ -15,17 +15,18 @@ def _client(handler) -> BridgeClient:
     )
 
 
+def _ok(result, *, api_version=MIN_API_VERSION):
+    """A well-formed 200 bridge envelope: every real reply carries api_version at this level."""
+    return httpx.Response(200, json={"result": result, "api_version": api_version})
+
+
 def test_capture_top_decodes_image_and_sends_token():
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["auth"] = request.headers["authorization"]
         seen["query"] = dict(request.url.params)
-        return httpx.Response(
-            200,
-            json={"result": {"format": "png", "width": 4, "height": 2,
-                             "data_b64": base64.b64encode(PNG).decode()}},
-        )
+        return _ok({"format": "png", "width": 4, "height": 2, "data_b64": base64.b64encode(PNG).decode()})
 
     cap = _client(handler).capture_top("/project1/out1", "png")
     assert cap.data == PNG
@@ -36,7 +37,7 @@ def test_capture_top_decodes_image_and_sends_token():
 
 def test_bridge_level_error_is_raised():
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"result": {"error": "no operator at exactly '/x/*'"}})
+        return _ok({"error": "no operator at exactly '/x/*'"})
 
     with pytest.raises(BridgeError, match="no operator"):
         _client(handler).capture_top("/x/*")
@@ -44,7 +45,9 @@ def test_bridge_level_error_is_raised():
 
 def test_wrong_token_gives_actionable_message():
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"error": "missing or wrong bearer token"})
+        return httpx.Response(
+            401, json={"error": "missing or wrong bearer token", "api_version": MIN_API_VERSION}
+        )
 
     with pytest.raises(BridgeError, match="rejected the token"):
         _client(handler).ping()
@@ -88,13 +91,25 @@ def test_token_file_must_be_private(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "status,payload",
     [
-        (200, {}),  # no "result"
-        (200, {"result": "nope"}),  # result is not an object
+        (200, {"api_version": MIN_API_VERSION}),  # no "result"
+        (200, {"result": "nope", "api_version": MIN_API_VERSION}),  # result is not an object
         (200, ["not", "an", "object"]),
         (500, ["not", "an", "object"]),
-        (200, {"result": {"format": "png", "width": 1, "height": 1}}),  # no data_b64
-        (200, {"result": {"format": "png", "width": "x", "height": 1, "data_b64": "AAAA"}}),
-        (200, {"result": {"format": "png", "width": 1, "height": 1, "data_b64": "***"}}),
+        (200, {"result": {"format": "png", "width": 1, "height": 1}, "api_version": MIN_API_VERSION}),  # no data_b64
+        (
+            200,
+            {
+                "result": {"format": "png", "width": "x", "height": 1, "data_b64": "AAAA"},
+                "api_version": MIN_API_VERSION,
+            },
+        ),
+        (
+            200,
+            {
+                "result": {"format": "png", "width": 1, "height": 1, "data_b64": "***"},
+                "api_version": MIN_API_VERSION,
+            },
+        ),
     ],
 )
 def test_malformed_replies_become_bridge_errors(status, payload):
@@ -149,7 +164,7 @@ def test_malformed_url_gets_a_clear_message(url):
 
 def test_401_from_something_else_is_not_blamed_on_the_token():
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"message": "proxy auth required"})
+        return httpx.Response(401, json={"message": "proxy auth required", "api_version": MIN_API_VERSION})
 
     with pytest.raises(BridgeError, match="does not understand"):
         _client(handler).ping()
@@ -165,6 +180,162 @@ def test_client_never_trusts_proxy_environment(monkeypatch):
         return real_client(*args, **kwargs)
 
     monkeypatch.setattr("td_mcp.client.httpx.Client", recording_client)
-    transport = httpx.MockTransport(lambda r: httpx.Response(200, json={"result": {"ok": True}}))
+    transport = httpx.MockTransport(lambda r: _ok({"ok": True}))
     BridgeClient(base_url="http://127.0.0.1:9991", token="t", transport=transport).ping()
     assert seen["trust_env"] is False
+
+
+# --- API version gate (Phase 1) -------------------------------------------------------------
+
+
+def test_old_bridge_is_refused_and_told_to_rebuild():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"ok": True}, "api_version": "0.0.1"})
+
+    with pytest.raises(BridgeError, match="older than"):
+        _client(handler).ping()
+
+
+def test_missing_api_version_is_reported():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"ok": True}})
+
+    with pytest.raises(BridgeError, match="did not report an API version"):
+        _client(handler).ping()
+
+
+def test_unreadable_api_version_is_reported():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"ok": True}, "api_version": "not-a-version"})
+
+    with pytest.raises(BridgeError, match="unreadable API version"):
+        _client(handler).ping()
+
+
+def test_newer_bridge_than_expected_is_still_accepted():
+    """Only MIN_API_VERSION blocks; a newer bridge than this server was built against is fine."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"ok": True}, "api_version": "9.9.9"})
+
+    assert _client(handler).ping() == {"ok": True}
+
+
+# --- New Phase 1 routes ----------------------------------------------------------------------
+
+
+def test_project_info_returns_the_result_object():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _ok({"project_name": "show.toe", "cook_rate": 60.0})
+
+    assert _client(handler).project_info() == {"project_name": "show.toe", "cook_rate": 60.0}
+
+
+def test_get_errors_sends_the_path_and_checks_for_an_error_result():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"status": "clean"})
+
+    _client(handler).get_errors("/project1")
+    assert seen["query"] == {"path": "/project1"}
+
+
+def test_snapshot_graph_sends_path_and_maxdepth():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"operators": []})
+
+    _client(handler).snapshot_graph("/p", max_depth=3)
+    assert seen["query"] == {"path": "/p", "maxdepth": "3"}
+
+
+def test_list_children_omits_empty_filters():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"children": []})
+
+    _client(handler).list_children("/p")
+    assert seen["query"] == {"path": "/p", "offset": "0", "limit": "100"}
+
+
+def test_list_children_includes_family_and_type_when_given():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"children": []})
+
+    _client(handler).list_children("/p", family="TOP", type="constant")
+    assert seen["query"]["family"] == "TOP"
+    assert seen["query"]["type"] == "constant"
+
+
+def test_get_operator_raises_bridge_error_for_a_bad_path():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _ok({"error": "no operator at exactly '/missing'"})
+
+    with pytest.raises(BridgeError, match="no operator"):
+        _client(handler).get_operator("/missing")
+
+
+def test_get_parameters_sends_optional_name_pattern():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"parameters": []})
+
+    _client(handler).get_parameters("/p/out", name="reso*")
+    assert seen["query"] == {"path": "/p/out", "name": "reso*"}
+
+
+# --- Review fixes -----------------------------------------------------------------------------
+
+
+def test_bridge_fallback_500_without_api_version_reports_the_real_error():
+    """The bridge's outer fallback (and any foreign service) may send no api_version."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "unhandled bridge error; see textport"})
+
+    with pytest.raises(BridgeError, match=r"HTTP 500.*unhandled bridge error"):
+        _client(handler).ping()
+
+
+def test_foreign_502_json_is_not_blamed_on_an_old_bridge():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, json={"error": "bad gateway"})
+
+    with pytest.raises(BridgeError, match="HTTP 502"):
+        _client(handler).ping()
+
+
+def test_old_bridge_on_a_missing_route_still_gets_the_rebuild_message():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "no route /errors", "api_version": "0.0.1"})
+
+    with pytest.raises(BridgeError, match="older than"):
+        _client(handler).get_errors()
+
+
+def test_host_or_origin_refusal_explains_loopback_only():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403, json={"error": "Host must be 127.0.0.1", "api_version": MIN_API_VERSION}
+        )
+
+    with pytest.raises(BridgeError, match="loopback Origins"):
+        _client(handler).ping()
+
+
+def test_bridge_version_other_than_expected_is_logged(caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _ok({"ok": True}, api_version="9.9.9")
+
+    with caplog.at_level("WARNING", logger="td_mcp"):
+        _client(handler).ping()
+    assert "9.9.9" in caplog.text

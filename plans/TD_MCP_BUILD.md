@@ -2,7 +2,7 @@
 
 Type: plan
 Status: open
-Last verified: 2026-11-25 at `e2db2cd`
+Last verified: 2026-11-26 at `369aabd`
 
 This plan owns all progress for building the server. Other documents link here and do not restate status.
 
@@ -52,15 +52,29 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
 
 ### Phase 1: Core and perception (read-only)
 
-- [ ] Auth, error model, client with timeouts
-- [ ] Server/`.tox` API-version gate (minimum and expected version, independent of the package version)
-- [ ] `td_get_errors` reads both the errors and warnings streams and reports `incomplete` rather than an all-clear when a stream is unread
-- [ ] Bridge rejects any non-loopback Host or Origin and sends no wildcard CORS header
-- [ ] Tool annotations and `outputSchema` on every tool
-- [ ] Build the bridge `.tox` from the `bridge/src/` sources in CI and fail the build if the committed `.tox` embeds different text than the source (the prior art shipped a `.tox` older than its own scripts)
-- [ ] Pin the server launch to an exact version in the install guide instead of `@latest` (the prior art's users were exposed to the March 2026 axios compromise through `npx -y ...@latest`)
-- [ ] `td_project_info`, `td_capture_top`, `td_get_errors`, `td_snapshot_graph`
-- [ ] `td_list_children`, `td_get_operator`, `td_get_parameters`
+- [x] Auth, error model, client with timeouts
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: `src/td_mcp/client.py` already had token auth, loopback/IPv4 checks, timeouts and `BridgeError` messages from Phase 0; extended with an `_checked_result` helper and methods for every new route below. `uv run pytest tests/unit/test_client.py` passes.
+- [x] Server/`.tox` API-version gate (minimum and expected version, independent of the package version)
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: `MIN_API_VERSION`/`EXPECTED_API_VERSION` in `src/td_mcp/client.py`; the bridge's `API_VERSION` bumped to `0.1.0` (`bridge/src/callbacks.py`) and now carried at the top level of every reply, not just `/ping`'s result. A bridge below `MIN_API_VERSION` is refused with a rebuild message; a newer one is accepted. Unit-tested in `tests/unit/test_client.py` (`test_old_bridge_is_refused_and_told_to_rebuild`, `test_missing_api_version_is_reported`, `test_unreadable_api_version_is_reported`, `test_newer_bridge_than_expected_is_still_accepted`) and `tests/unit/test_bridge_callbacks.py::test_every_reply_carries_the_bridges_api_version_envelope`.
+  - Note 2026-11-26: both versions raised to `0.2.0` at `369aabd`, because the `/errors` and `/snapshot` replies gained a required `excluded` field.
+- [x] `td_get_errors` reads both the errors and warnings streams and reports `incomplete` rather than an all-clear when a stream is unread
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: `/errors` route in `bridge/src/callbacks.py` reads `errors(recurse=True)` and `warnings(recurse=True)` independently; either one raising marks it `unread` and forces `status: "incomplete"`. The response always carries a `caveats` note that a Script operator's own uncaught exception reaches neither stream (research/PHASE0_SPIKE_RESULTS.md), so a "clean" status is never read as an unconditional guarantee. Unit-tested in `tests/unit/test_bridge_callbacks.py` (`test_errors_route_*`, 4 tests).
+- [x] Bridge rejects any non-loopback Host or Origin and sends no wildcard CORS header
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: `_handle()` in `bridge/src/callbacks.py` checks Host and Origin (when present) against `127.0.0.1` before even reading the token (decision 0003's "stronger defense" layer), and no response ever sets a CORS header. Unit-tested (`test_non_loopback_host_is_refused_before_the_token`, `test_non_loopback_origin_is_refused`, `test_absent_or_loopback_origin_is_allowed`, `test_bad_host_is_checked_before_the_token_is_even_read`, `test_no_response_ever_carries_a_cors_header`).
+- [x] Tool annotations and `outputSchema` on every tool
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: all 7 tools carry `readOnlyHint`/`openWorldHint`. The 6 tools returning JSON data get a real `outputSchema` generated from `src/td_mcp/schemas.py` TypedDicts (confirmed via `fastmcp.Client.list_tools()` and `tests/unit/test_server.py::test_every_structured_tool_has_an_output_schema`). `td_capture_top` has none by MCP design: it returns an `Image` content block, not structured JSON, so there is no output schema to generate — not a gap.
+- [x] Build the bridge `.tox` from the `bridge/src/` sources in CI and fail the build if the committed `.tox` embeds different text than the source (the prior art shipped a `.tox` older than its own scripts)
+  - Adapted 2026-11-25 on the uncommitted working tree over `3df1a28`: this project never commits a `.tox` (`bridge/build/` is gitignored because the build embeds a fresh per-session token), so there is no committed binary to diff against — the prior art's exact failure mode cannot occur here. What remains is guarded instead: `bridge/build_spike.py` now exposes `prepare_script()`, which always re-reads `bridge/src/callbacks.py` from disk, and `tests/unit/test_build_spike.py` proves that (byte-identical output, and a "reads a decoy file instead of a monkeypatched path" check) without needing TouchDesigner. Added `.github/workflows/ci.yml`, which runs ruff, pyright and this test suite on push/PR. **Left unchecked**: this session has no way to trigger a real GitHub Actions run, so the workflow YAML itself (action versions, runner behavior) is implemented but unverified; only the underlying `uv run pytest` it calls has been run and passes locally. Verify on the first real PR and check this off then.
+  - Verified 2026-11-26: the first real run passed on PR #3 at `15d10c9` (ruff, pyright, 126 unit tests including both in `tests/unit/test_build_spike.py`): https://github.com/KingRaver/touchme/actions/runs/45769767778. Checked off in the adapted form above: CI does not build a `.tox`, which needs TouchDesigner.
+- [x] Pin the server launch to an exact version in the install guide instead of `@latest` (the prior art's users were exposed to the March 2026 axios compromise through `npx -y ...@latest`)
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: `guides/INSTALL.md` (new; first doc in `guides/`, so the folder is created per `CLAUDE.md`). `td-mcp` is not yet on PyPI, so it documents pinning to a chosen commit sha instead of tracking `main`, and the eventual `uvx td-mcp==<version>` form (never `@latest`) once released, plus a Claude Code config snippet and the bridge build/load steps.
+- [x] `td_project_info`, `td_capture_top`, `td_get_errors`, `td_snapshot_graph`
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: all four implemented in `src/td_mcp/server.py` against new `bridge/src/callbacks.py` routes (`/project-info`, `/capture` unchanged, `/errors`, `/snapshot`), with unit tests at both the bridge layer (`tests/unit/test_bridge_callbacks.py`) and the tool layer (`tests/unit/test_server.py`). `td_project_info`'s "resolution" is intentionally not reported — see the note added to `specs/TOOL_CATALOG.md`. Not re-verified live against TouchDesigner in this session (no TD attached); that remains the job of `tests/integration` (opt-in).
+  - Note 2026-11-26: run live against TouchDesigner 2025.33230. The first run found three problems in `td_get_errors` and `td_snapshot_graph`; fixed at `369aabd` and confirmed live. Evidence in `research/PHASE1_LIVE_RESULTS.md`.
+- [x] `td_list_children`, `td_get_operator`, `td_get_parameters`
+  - Verified 2026-11-25 on the uncommitted working tree over `3df1a28`: all three implemented against new routes (`/children`, `/operator`, `/parameters`), unit-tested at both layers. Same caveat as above: not re-verified live against TouchDesigner in this session.
+  - Note 2026-11-26: run live against TouchDesigner 2025.33230. The first run found that parameter `min`/`max` were reported when not enforced; fixed at `369aabd` and confirmed live. Evidence in `research/PHASE1_LIVE_RESULTS.md`.
+- [ ] Find why the bridge stops answering while TouchDesigner is in the background, then fix it or document the setting that prevents it, and correct the client's timeout message (found 2026-11-26, `research/PHASE1_LIVE_RESULTS.md`)
 
 ### Phase 2: Construction
 

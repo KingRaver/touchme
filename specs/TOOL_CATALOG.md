@@ -2,7 +2,7 @@
 
 Type: spec
 Status: open
-Last verified: 2026-11-25 at `no git repo yet`
+Last verified: 2026-11-26 at `369aabd`
 
 The MCP tools the server exposes. All names use a `td_` prefix. Read-only tools carry `readOnlyHint`. Tools that delete or overwrite carry `destructiveHint`. Structure and constraints are in `specs/ARCHITECTURE.md`. Build order is in `plans/TD_MCP_BUILD.md`.
 
@@ -12,9 +12,13 @@ The MCP tools the server exposes. All names use a `td_` prefix. Read-only tools 
 |---|---|
 | `td_capture_top` | Render a TOP to PNG/JPEG at a chosen size, returned as an MCP image. The core feedback tool. |
 | `td_capture_contact_sheet` | Several TOPs or time samples in one image, to compare variations cheaply. |
-| `td_get_errors` | Errors and warnings across a subtree, with operator path and message. |
+| `td_get_errors` | Errors and warnings across a subtree, one row per message with its operator path. |
 | `td_get_performance` | FPS, cook time per operator (top N), GPU/CPU memory, dropped frames. |
 | `td_snapshot_graph` | Compact text/JSON description of a network: ops, types, connections, flags. |
+
+On the project root (`/`), `td_get_errors` and `td_snapshot_graph` leave out TouchDesigner's own
+`/ui` and `/sys` networks and list them in `excluded`. Either path, asked for directly, is
+reported in full (subject to the snapshot's limits), with `excluded` empty.
 
 ## Inspection
 
@@ -22,8 +26,11 @@ The MCP tools the server exposes. All names use a `td_` prefix. Read-only tools 
 |---|---|
 | `td_list_children` | Children of a COMP, paginated, filterable by family and type. |
 | `td_get_operator` | Type, flags, inputs and outputs, non-default parameters. |
-| `td_get_parameters` | Full parameter detail for one operator (value, expression, mode, range, menu items). |
+| `td_get_parameters` | Full parameter detail for one operator (value, expression, mode, clamp limits, menu items). |
 | `td_read_chop` / `td_read_dat` / `td_read_sop_info` | Sample data, with row and channel limits to protect context. |
+
+A parameter's `min` and `max` are the limits TouchDesigner clamps to. Each is null when the value
+is not clamped on that side.
 
 ## Construction
 
@@ -41,10 +48,15 @@ The MCP tools the server exposes. All names use a `td_` prefix. Read-only tools 
 
 | Tool | Purpose |
 |---|---|
-| `td_project_info` | Build, project path, FPS, resolution, timeline state. |
+| `td_project_info` | Build, project name/folder, cook rate (FPS), timeline state. |
 | `td_timeline` | Play, pause, set frame, set range. |
 | `td_save_project` | Save, or save-as inside the allowed root. |
 | `td_undo` / `td_redo` | Step through the history of server-made changes. |
+
+`td_project_info` does not report a project-level resolution: TouchDesigner has no single
+project-wide resolution property (docs.derivative.ca's `App_Class`/`Project_Class`; checked
+2026-11-25), only per-operator and per-window ones. Revisit once a specific output-resolution
+need (e.g. the Window COMP backing the perform window) is identified.
 
 ## Knowledge
 

@@ -56,15 +56,26 @@ def td_build(app_path):
 		return FALLBACK_TD_BUILD
 
 
+def prepare_script(token, test_fixtures):
+	"""Return bridge/src/callbacks.py with the build-time placeholders substituted.
+
+	Always reads the source fresh from disk, so what gets embedded in the .tox can never
+	be a stale cached copy: the prior-art bug this guards against is a built .tox that
+	embeds a script older than its own source (research/PRIOR_ART_TOUCHDESIGNER_MCP.md,
+	finding 3). Covered without TouchDesigner by tests/unit/test_build_spike.py.
+	"""
+	with open(os.path.join(HERE, "src", "callbacks.py"), encoding="utf-8") as f:
+		source = f.read()
+	return source.replace("__TOKEN__", token).replace("__TEST_FIXTURES__", "1" if test_fixtures else "0")
+
+
 def build(tmp, port, test_fixtures, app_path):
 	toecollapse = os.path.join(app_path, "Contents", "MacOS", "toecollapse")
 	if not os.access(toecollapse, os.X_OK):
 		sys.exit(f"toecollapse not found at {toecollapse}. Set TD_APP to your TouchDesigner.app.")
 
 	token = secrets.token_urlsafe(24)
-	with open(os.path.join(HERE, "src", "callbacks.py"), encoding="utf-8") as f:
-		source = f.read()
-	script = source.replace("__TOKEN__", token).replace("__TEST_FIXTURES__", "1" if test_fixtures else "0")
+	script = prepare_script(token, test_fixtures)
 
 	d = os.path.join(tmp, NAME + ".tox.dir")
 	child = os.path.join(d, NAME)

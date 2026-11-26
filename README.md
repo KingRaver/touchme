@@ -12,8 +12,9 @@ Progress is tracked only in [plans/TD_MCP_BUILD.md](plans/TD_MCP_BUILD.md).
 | [specs/](specs/README.md) | Architecture and tool catalog | How must it behave |
 | [decisions/](decisions/README.md) | Decision records | Why is it this way |
 | [research/](research/README.md) | Verified facts and reference notes | What did we look at |
+| [guides/](guides/README.md) | How to install, run, test | How do I use this |
 
-Folders for guides, audits and incidents are created when the first one is written. Code lives in `src/td_mcp/` (the server), `bridge/` (the TouchDesigner side) and `tests/`; `evals/` is created with the first eval. The planned layout is in [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md).
+Folders for audits and incidents are created when the first one is written. Code lives in `src/td_mcp/` (the server), `bridge/` (the TouchDesigner side) and `tests/`; `evals/` is created with the first eval. The planned layout is in [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md).
 
 ## Development
 

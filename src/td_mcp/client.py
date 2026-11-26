@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import stat
 from dataclasses import dataclass
@@ -14,8 +15,16 @@ import httpx
 
 from td_mcp.errors import BridgeError
 
+_log = logging.getLogger("td_mcp")
+
 DEFAULT_URL = "http://127.0.0.1:9991"
 DEFAULT_TIMEOUT_S = 10.0
+# The bridge's own API version (bridge/src/callbacks.py's API_VERSION), independent of this
+# package's version. MIN is the oldest bridge build this client will talk to; EXPECTED is
+# what it was built and tested against. A bridge below MIN is refused outright so a stale
+# bridge fails with "rebuild it" instead of a confusing 404 on a route it does not have yet.
+MIN_API_VERSION = "0.2.0"
+EXPECTED_API_VERSION = "0.2.0"
 # The bridge's Web Server DAT listens on IPv4 127.0.0.1 only (Phase 0), and "localhost" can
 # resolve to ::1 first and be refused, so no other spelling is accepted.
 _LOOPBACK_HOSTS = {"127.0.0.1"}
@@ -46,6 +55,39 @@ def _read_token() -> str:
     if not token:
         raise BridgeError(f"Token file {path} is empty. Rebuild the bridge to write a new one.")
     return token
+
+
+def _parse_version(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
+
+
+def _check_api_version(body: dict[str, Any]) -> None:
+    """Raise unless the bridge's own reported API version meets MIN_API_VERSION.
+
+    Every bridge reply carries `api_version` at the top level (bridge/src/callbacks.py's
+    `reply()`), so this runs on every call, not just `/ping`.
+    """
+    reported = body.get("api_version")
+    if not isinstance(reported, str) or not reported:
+        raise BridgeError(
+            "The bridge did not report an API version. Rebuild and reload the bridge "
+            "(python3 bridge/build_spike.py) from the current bridge/src/ sources."
+        )
+    try:
+        reported_t = _parse_version(reported)
+    except ValueError as exc:
+        raise BridgeError(f"The bridge reported an unreadable API version {reported!r}.") from exc
+    if reported_t < _parse_version(MIN_API_VERSION):
+        raise BridgeError(
+            f"The bridge is API version {reported}, older than the {MIN_API_VERSION} this "
+            "server requires. Rebuild and reload the bridge."
+        )
+    if reported != EXPECTED_API_VERSION:
+        _log.warning(
+            "Bridge API version %s differs from the %s this server was tested against.",
+            reported,
+            EXPECTED_API_VERSION,
+        )
 
 
 @dataclass(frozen=True)
@@ -130,8 +172,20 @@ class BridgeClient:
             if isinstance(body.get("error"), str):
                 raise BridgeError("The bridge rejected the token. Rebuild or reload the bridge.")
             raise BridgeError(_UNEXPECTED)
+        if resp.status_code == 403 and isinstance(body.get("error"), str):
+            raise BridgeError(
+                f"The bridge refused this request ({body['error']}). It accepts only Host "
+                "127.0.0.1 and loopback Origins (decision 0003), so a remote or reverse-proxied "
+                "bridge is not supported."
+            )
         if resp.status_code != 200:
+            # A real bridge error body may lack api_version (the outer fallback of an older
+            # build), and a foreign service never has one, so only check it when present:
+            # an old bridge still gets the rebuild message, anything else gets the HTTP error.
+            if "api_version" in body:
+                _check_api_version(body)
             raise BridgeError(f"Bridge error (HTTP {resp.status_code}): {body.get('error', body)}")
+        _check_api_version(body)
         return body
 
     def _result(self, route: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -140,13 +194,18 @@ class BridgeClient:
             raise BridgeError(_UNEXPECTED)
         return result
 
+    def _checked_result(self, route: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Like `_result`, but also turns a bridge-level `{"error": ...}` into a BridgeError."""
+        result = self._result(route, params)
+        if "error" in result:
+            raise BridgeError(str(result["error"]))
+        return result
+
     def ping(self) -> dict[str, Any]:
         return self._result("/ping")
 
     def capture_top(self, path: str, fmt: str = "png") -> Capture:
-        result = self._result("/capture", {"path": path, "format": fmt})
-        if "error" in result:
-            raise BridgeError(str(result["error"]))
+        result = self._checked_result("/capture", {"path": path, "format": fmt})
         try:
             return Capture(
                 data=base64.b64decode(result["data_b64"], validate=True),
@@ -156,3 +215,36 @@ class BridgeClient:
             )
         except (KeyError, TypeError, ValueError) as exc:  # binascii.Error is a ValueError
             raise BridgeError(_UNEXPECTED) from exc
+
+    def project_info(self) -> dict[str, Any]:
+        return self._checked_result("/project-info")
+
+    def get_errors(self, path: str = "/") -> dict[str, Any]:
+        return self._checked_result("/errors", {"path": path})
+
+    def snapshot_graph(self, path: str = "/", max_depth: int = 1) -> dict[str, Any]:
+        return self._checked_result("/snapshot", {"path": path, "maxdepth": max_depth})
+
+    def list_children(
+        self,
+        path: str = "/",
+        family: str | None = None,
+        type: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"path": path, "offset": offset, "limit": limit}
+        if family:
+            params["family"] = family
+        if type:
+            params["type"] = type
+        return self._checked_result("/children", params)
+
+    def get_operator(self, path: str) -> dict[str, Any]:
+        return self._checked_result("/operator", {"path": path})
+
+    def get_parameters(self, path: str, name: str | None = None) -> dict[str, Any]:
+        params: dict[str, Any] = {"path": path}
+        if name:
+            params["name"] = name
+        return self._checked_result("/parameters", params)
