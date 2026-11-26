@@ -2,7 +2,7 @@
 
 Type: research
 Status: complete-with-open-items (Phase 1 TD API assumptions below are doc-sourced, not re-verified live)
-Last verified: 2026-11-25 at `3df1a28` plus uncommitted Phase 1 changes (re-stamp with the Phase 1 commit)
+Last verified: 2026-11-26 at `8cbebbe`
 
 Facts about the machine this server is built on. Re-run the commands if the TouchDesigner install changes.
 

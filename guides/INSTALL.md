@@ -2,7 +2,7 @@
 
 Type: guide
 Status: open
-Last verified: 2026-11-25 at `3df1a28` plus uncommitted Phase 1 changes (re-stamp with the Phase 1 commit)
+Last verified: 2026-11-26 at `8cbebbe`
 
 How to install and launch the server, and the bridge it talks to. See `specs/ARCHITECTURE.md`
 for what the two pieces are, and `research/TD_ENVIRONMENT.md` for the TouchDesigner build this
