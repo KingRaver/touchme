@@ -2,7 +2,7 @@
 
 Type: research
 Status: complete-with-open-items (see "Not tested")
-Last verified: 2026-11-26 at `64a3ad9`
+Last verified: 2026-11-26 at `c1ee443`
 
 How the performance, data, timeline and contact-sheet tools behaved on a live **2025.33230** (macOS, arm64, non-commercial license), through the real stdio server and a `--test-fixtures` bridge build with TouchDesigner in front. The code these results shaped is committed as `64a3ad9`; it was measured as an uncommitted working tree over `5e90090`. Probes were throwaway scripts kept outside this repository; they used the server's own tools, so no probe component was needed.
 
@@ -71,7 +71,7 @@ The timeline was restored after success and after a refusal part way through, pa
 
 ### Trail CHOP
 
-Measured 2026-11-26 at `a4b218d`, same build and setup: a Timeline CHOP into Trail CHOPs of 8 and 600 samples, both capture modes (`timeslice`, `inputcooks`) at 8 samples and `timeslice` at 600.
+Measured 2026-11-26 at `a4b218d`, same build and setup (the warning and annotation changes that followed are committed as `c1ee443`): a Timeline CHOP into Trail CHOPs of 8 and 600 samples, both capture modes (`timeslice`, `inputcooks`) at 8 samples and `timeslice` at 600.
 
 | Check | Result |
 |---|---|

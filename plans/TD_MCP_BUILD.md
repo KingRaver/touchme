@@ -2,7 +2,7 @@
 
 Type: plan
 Status: open
-Last verified: 2026-11-26 at `64a3ad9`
+Last verified: 2026-11-26 at `c1ee443`
 
 This plan owns all progress for building the server. Other documents link here and do not restate status.
 
@@ -141,6 +141,7 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
     warning is corrected, and `td_timeline` and `td_capture_contact_sheet` are annotated
     destructive. ruff and pyright clean, 442 unit tests pass, and all 80 integration tests
     passed in one live run on 2025.33230. Evidence in `research/PHASE4_LIVE_RESULTS.md`.
+    The verified code is committed as `c1ee443`.
 
 ### Phase 5: Recipes and polish
 
