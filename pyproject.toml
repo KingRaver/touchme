@@ -7,6 +7,10 @@ requires-python = ">=3.11"
 dependencies = [
     "fastmcp>=4.2,<5",
     "httpx>=0.28,<1",
+    # typing_extensions.TypedDict, not typing.TypedDict, for pydantic's schema generation on
+    # Python < 3.12 (src/td_mcp/schemas.py). Already a transitive dep; pinned explicitly
+    # because the server imports it directly.
+    "typing-extensions>=4.12,<5",
 ]
 
 [project.scripts]

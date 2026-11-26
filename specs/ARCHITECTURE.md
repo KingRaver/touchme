@@ -2,7 +2,7 @@
 
 Type: spec
 Status: open
-Last verified: 2026-11-25 at `e2db2cd`
+Last verified: 2026-11-25 at `3df1a28` plus uncommitted Phase 1 changes (re-stamp with the Phase 1 commit)
 
 How the TouchDesigner MCP server is structured and how it must behave. Tools are specified in `specs/TOOL_CATALOG.md`. Why these choices were made is in `decisions/`.
 
@@ -62,7 +62,7 @@ touchme/
   specs/        normative behavior (this file, the tool catalog)
   decisions/    why it is this way
   research/     verified facts and reference notes
-  guides/       how to install, run, test (created with the first guide)
+  guides/       how to install, run, test
   audits/       findings as found (created with the first audit)
   incidents/    what went wrong (created with the first incident)
 
