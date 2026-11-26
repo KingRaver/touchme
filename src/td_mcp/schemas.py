@@ -36,6 +36,7 @@ class ErrorReport(TypedDict):
     unread_streams: list[str]
     errors: list[ErrorRow]
     warnings: list[ErrorRow]
+    excluded: list[str]  # subtrees left out of a "/" report; empty for any other path
     caveats: list[str]
 
 
@@ -61,6 +62,7 @@ class GraphSnapshot(TypedDict):
     max_depth: int
     operator_count: int
     truncated: bool  # True when the operator cap cut the list short
+    excluded: list[str]  # subtrees left out of a "/" snapshot; empty for any other path
     operators: list[GraphOperator]
 
 
@@ -86,8 +88,8 @@ class ParameterDetail(TypedDict):
     mode: str | None
     is_default: bool | None
     readable: bool  # False when evaluating the parameter raised
-    min: float | None
-    max: float | None
+    min: float | None  # clamp limit; None when the value is not clamped below
+    max: float | None  # clamp limit; None when the value is not clamped above
     menu_names: list[str] | None
     menu_labels: list[str] | None
 

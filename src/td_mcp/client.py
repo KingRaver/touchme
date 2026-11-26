@@ -23,8 +23,8 @@ DEFAULT_TIMEOUT_S = 10.0
 # package's version. MIN is the oldest bridge build this client will talk to; EXPECTED is
 # what it was built and tested against. A bridge below MIN is refused outright so a stale
 # bridge fails with "rebuild it" instead of a confusing 404 on a route it does not have yet.
-MIN_API_VERSION = "0.1.0"
-EXPECTED_API_VERSION = "0.1.0"
+MIN_API_VERSION = "0.2.0"
+EXPECTED_API_VERSION = "0.2.0"
 # The bridge's Web Server DAT listens on IPv4 127.0.0.1 only (Phase 0), and "localhost" can
 # resolve to ::1 first and be refused, so no other spelling is accepted.
 _LOOPBACK_HOSTS = {"127.0.0.1"}

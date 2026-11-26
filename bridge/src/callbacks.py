@@ -23,9 +23,9 @@ import traceback
 TOKEN = "__TOKEN__"
 _FIXTURES_FLAG = "__TEST_FIXTURES__"  # "1" or "0", set by build_spike.py
 ENABLE_TEST_FIXTURES = _FIXTURES_FLAG == "1"
-# Bumped in Phase 1: the new routes below did not exist at 0.0.1, so a server that requires
-# 0.1.0 correctly refuses a Phase-0 bridge instead of calling routes it does not have.
-API_VERSION = "0.1.0"
+# 0.2.0 added the `excluded` field to /errors and /snapshot, which the server's output schemas
+# require, so a server that requires 0.2.0 refuses an older bridge with a rebuild message.
+API_VERSION = "0.2.0"
 # Built from pieces so build_spike.py's replace of the token placeholder cannot rewrite it.
 _TOKEN_PLACEHOLDER = "__TOK" + "EN__"
 # Refuse before encoding: encoding a huge TOP blocks TouchDesigner's main thread.
@@ -41,6 +41,10 @@ MAX_SNAPSHOT_DEPTH = 8
 MAX_SNAPSHOT_OPERATORS = 1000
 # /children page size ceiling.
 MAX_CHILDREN_LIMIT = 500
+# TouchDesigner's own interface and system networks. A project-wide ("/") /errors or
+# /snapshot reply leaves them out and says so in `excluded`; either path can be asked for
+# directly. Why: research/PHASE1_LIVE_RESULTS.md.
+INTERNAL_ROOTS = ("/ui", "/sys")
 
 
 def _header(request, name):
@@ -138,6 +142,14 @@ def _bad_path(path):
 	return {"error": "no operator at exactly %r. Use an absolute path, no wildcards." % (path,)}
 
 
+def _excluded_roots(path):
+	return list(INTERNAL_ROOTS) if path == "/" else []
+
+
+def _is_under(path, roots):
+	return any(path == root or path.startswith(root + "/") for root in roots)
+
+
 def _flags(target):
 	return {
 		"bypass": bool(getattr(target, "bypass", False)),
@@ -164,6 +176,18 @@ def _all_pars(target):
 	return list(getattr(target, "builtinPars", None) or []) + list(getattr(target, "customPars", None) or [])
 
 
+def _clamp_limit(par, limit_name, clamp_name):
+	"""Return par.min or par.max only when TouchDesigner clamps to it, else None.
+
+	An unclamped limit is not a range: values may lie outside it (docs.derivative.ca/Par_Class,
+	and research/PHASE1_LIVE_RESULTS.md).
+	"""
+	try:
+		return getattr(par, limit_name) if getattr(par, clamp_name) else None
+	except Exception:
+		return None
+
+
 def _par_detail(par):
 	readable = True
 	try:
@@ -184,20 +208,32 @@ def _par_detail(par):
 		"mode": str(mode) if mode is not None else None,
 		"is_default": is_default,
 		"readable": readable,
-		"min": getattr(par, "min", None),
-		"max": getattr(par, "max", None),
+		"min": _clamp_limit(par, "min", "clampMin"),
+		"max": _clamp_limit(par, "max", "clampMax"),
 		"menu_names": list(menu_names) if menu_names else None,
 		"menu_labels": list(menu_labels) if menu_labels else None,
 	}
 
 
+_SEVERITIES = ("Error:", "Warning:")
+
+
+def _strip_severity(text):
+	for prefix in _SEVERITIES:
+		if text.startswith(prefix):
+			return text[len(prefix):].lstrip()
+	return text
+
+
 def _parse_stream(text, root_path):
-	"""Split an errors()/warnings() string into {"path", "message"} rows.
+	"""Split an errors()/warnings() string into {"path", "message"} rows, one per message.
 
 	Verified line formats (research/PHASE0_SPIKE_RESULTS.md): errors() is
 	"<path>:  Error: <msg>" (two spaces), warnings() is "<path>:Warning: <msg>" (none).
-	A line starts a new row only when it begins with an absolute path and a colon; any other
-	line (a wrapped message, a traceback) continues the previous row.
+	Further warnings from the same operator follow as bare "Warning: <msg>" lines
+	(research/PHASE1_LIVE_RESULTS.md); each is its own row under that operator. Bare "Error:"
+	lines are treated the same way. Any other line (a wrapped message, a traceback) continues
+	the previous row.
 	"""
 	rows = []
 	for line in (text or "").splitlines():
@@ -205,18 +241,14 @@ def _parse_stream(text, root_path):
 		if not line:
 			continue
 		owner, sep, rest = line.partition(":")
-		if not (sep and owner.startswith("/") and not any(c.isspace() for c in owner)):
-			if rows:
-				rows[-1]["message"] += "\n" + line
-			else:
-				rows.append({"path": root_path, "message": line})
-			continue
-		rest = rest.lstrip()
-		for prefix in ("Error:", "Warning:"):
-			if rest.startswith(prefix):
-				rest = rest[len(prefix):].lstrip()
-				break
-		rows.append({"path": owner, "message": rest})
+		if sep and owner.startswith("/") and not any(c.isspace() for c in owner):
+			rows.append({"path": owner, "message": _strip_severity(rest.lstrip())})
+		elif not rows:
+			rows.append({"path": root_path, "message": line})
+		elif line.startswith(_SEVERITIES):
+			rows.append({"path": rows[-1]["path"], "message": _strip_severity(line)})
+		else:
+			rows[-1]["message"] += "\n" + line
 	return rows
 
 
@@ -258,8 +290,14 @@ def _errors(pars):
 		warnings_text = target.warnings(recurse=True)
 	except Exception:
 		unread.append("warnings")
-	errors = _parse_stream(errors_text, path) if errors_text is not None else []
-	warnings = _parse_stream(warnings_text, path) if warnings_text is not None else []
+	excluded = _excluded_roots(path)
+
+	def rows(text):
+		parsed = _parse_stream(text, path) if text is not None else []
+		return [row for row in parsed if not _is_under(row["path"], excluded)]
+
+	errors = rows(errors_text)
+	warnings = rows(warnings_text)
 	if unread:
 		status = "incomplete"
 	elif errors or warnings:
@@ -272,6 +310,7 @@ def _errors(pars):
 		"unread_streams": unread,
 		"errors": errors,
 		"warnings": warnings,
+		"excluded": excluded,
 		"caveats": [
 			(
 				"An exception raised inside a Script operator's own callback (e.g. onCook) does "
@@ -295,7 +334,9 @@ def _snapshot(pars):
 		return {"error": "maxdepth must be >= 0"}
 	depth = min(depth, MAX_SNAPSHOT_DEPTH)
 	descendants = target.findChildren(maxDepth=depth) if hasattr(target, "findChildren") else []
-	nodes = [target] + list(descendants)
+	excluded = _excluded_roots(path)
+	# Filtered before the cap, so excluded operators never use up the operator budget.
+	nodes = [target] + [n for n in descendants if not _is_under(n.path, excluded)]
 	truncated = len(nodes) > MAX_SNAPSHOT_OPERATORS
 	nodes = nodes[:MAX_SNAPSHOT_OPERATORS]
 	operators = [
@@ -314,6 +355,7 @@ def _snapshot(pars):
 		"max_depth": depth,
 		"operator_count": len(operators),
 		"truncated": truncated,
+		"excluded": excluded,
 		"operators": operators,
 	}
 

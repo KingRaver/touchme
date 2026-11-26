@@ -112,7 +112,7 @@ def test_get_errors_tool_passes_the_path_through(monkeypatch):
     monkeypatch.setattr(
         server.BridgeClient, "get_errors",
         lambda self, path="/": seen.update(path=path)
-        or {"path": path, "status": "clean", "unread_streams": [], "errors": [], "warnings": [], "caveats": []},
+        or {"path": path, "status": "clean", "unread_streams": [], "errors": [], "warnings": [], "excluded": [], "caveats": []},
     )
     result = _call("td_get_errors", {"path": "/project1"})
     assert seen["path"] == "/project1"
@@ -125,7 +125,7 @@ def test_snapshot_graph_tool_passes_path_and_max_depth(monkeypatch):
     monkeypatch.setattr(
         server.BridgeClient, "snapshot_graph",
         lambda self, path="/", max_depth=1: seen.update(path=path, max_depth=max_depth)
-        or {"path": path, "max_depth": max_depth, "operator_count": 0, "truncated": False, "operators": []},
+        or {"path": path, "max_depth": max_depth, "operator_count": 0, "truncated": False, "excluded": [], "operators": []},
     )
     _call("td_snapshot_graph", {"path": "/p", "max_depth": 2})
     assert seen == {"path": "/p", "max_depth": 2}

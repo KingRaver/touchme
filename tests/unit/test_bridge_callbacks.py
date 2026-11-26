@@ -39,6 +39,8 @@ class FakePar:
         mode="ParMode.CONSTANT",
         min_=None,
         max_=None,
+        clamp_min=False,
+        clamp_max=False,
         menu_names=None,
         menu_labels=None,
     ):
@@ -49,6 +51,8 @@ class FakePar:
         self.mode = mode
         self.min = min_
         self.max = max_
+        self.clampMin = clamp_min
+        self.clampMax = clamp_max
         self.menuNames = menu_names
         self.menuLabels = menu_labels
 
@@ -314,7 +318,7 @@ def test_no_response_ever_carries_a_cors_header():
 
 def test_every_reply_carries_the_bridges_api_version_envelope():
     _status, body = call(load({}), "/nope")  # even a 404 gets the envelope-level field
-    assert body["api_version"] == "0.1.0"
+    assert body["api_version"] == "0.2.0"
 
 
 # --- /project-info -----------------------------------------------------------------------
@@ -497,7 +501,7 @@ def test_outer_fallback_error_still_carries_api_version():
     ns = load({})
     response = {}
     ns["onHTTPRequest"](None, None, response)
-    assert json.loads(response["data"])["api_version"] == "0.1.0"
+    assert json.loads(response["data"])["api_version"] == "0.2.0"
 
 
 def test_multiline_message_continues_the_previous_row():
@@ -545,3 +549,83 @@ def test_unreadable_parameter_is_listed_not_dropped():
     params = body["result"]["non_default_parameters"]
     assert [p["name"] for p in params] == ["tx"]
     assert params[0]["readable"] is False and params[0]["value"] is None
+
+
+# --- Fixes from the live Phase 1 run (research/PHASE1_LIVE_RESULTS.md) ------------------------
+
+
+def test_each_warning_from_one_operator_is_its_own_row():
+    text = (
+        '/p/a:Warning: Export not found for parameter "Width" (/p/x)\n'
+        'Warning: Export not found for parameter "Height" (/p/y)\n'
+        "/p/b:Warning: missing file"
+    )
+    target = FakeOp("/p", warnings_text=text)
+    _s, body = call(load({"/p": target}), "/errors", pars={"path": "/p"})
+    assert body["result"]["warnings"] == [
+        {"path": "/p/a", "message": 'Export not found for parameter "Width" (/p/x)'},
+        {"path": "/p/a", "message": 'Export not found for parameter "Height" (/p/y)'},
+        {"path": "/p/b", "message": "missing file"},
+    ]
+
+
+def test_bare_error_lines_split_the_same_way():
+    target = FakeOp("/p", errors_text="/p/a:  Error: one\nError: two\n  detail")
+    _s, body = call(load({"/p": target}), "/errors", pars={"path": "/p"})
+    assert body["result"]["errors"] == [
+        {"path": "/p/a", "message": "one"},
+        {"path": "/p/a", "message": "two\ndetail"},
+    ]
+
+
+def test_root_errors_leave_out_internal_networks_and_say_so():
+    text = (
+        "/ui/a:Warning: internal\nWarning: internal too\n"
+        "/sys:Warning: internal\n"
+        "/uiThing:Warning: mine\n"
+        "/project1/a:Warning: also mine"
+    )
+    root = FakeOp("/", warnings_text=text)
+    _s, body = call(load({}, root=root), "/errors", pars={"path": "/"})
+    result = body["result"]
+    assert [r["path"] for r in result["warnings"]] == ["/uiThing", "/project1/a"]
+    assert result["excluded"] == ["/ui", "/sys"]
+
+
+def test_root_errors_are_clean_when_only_internal_networks_have_issues():
+    root = FakeOp("/", errors_text="/sys/a:  Error: internal", warnings_text="/ui/a:Warning: x")
+    _s, body = call(load({}, root=root), "/errors")
+    assert body["result"]["status"] == "clean"
+    assert body["result"]["excluded"] == ["/ui", "/sys"]
+
+
+def test_an_internal_network_can_be_asked_for_directly():
+    target = FakeOp("/ui", warnings_text="/ui/a:Warning: internal")
+    ns = load({"/ui": target})
+    _s, errors = call(ns, "/errors", pars={"path": "/ui"})
+    assert errors["result"]["excluded"] == [] and len(errors["result"]["warnings"]) == 1
+    target.children = [FakeOp("/ui/a")]
+    _s, snap = call(ns, "/snapshot", pars={"path": "/ui"})
+    assert snap["result"]["excluded"] == [] and snap["result"]["operator_count"] == 2
+
+
+def test_root_snapshot_leaves_out_internal_networks_before_the_cap():
+    internal = [FakeOp(f"/ui/k{i}") for i in range(1100)]
+    kids = [FakeOp("/ui"), *internal, FakeOp("/sys"), FakeOp("/project1"), FakeOp("/system")]
+    root = FakeOp("/", children=kids)
+    _s, body = call(load({}, root=root), "/snapshot", pars={"path": "/"})
+    result = body["result"]
+    assert [o["path"] for o in result["operators"]] == ["/", "/project1", "/system"]
+    assert result["excluded"] == ["/ui", "/sys"] and result["truncated"] is False
+
+
+@pytest.mark.parametrize(
+    ("clamp_min", "clamp_max", "expected"),
+    [(False, False, (None, None)), (True, False, (1, None)), (False, True, (None, 9)), (True, True, (1, 9))],
+)
+def test_parameter_limits_are_reported_only_when_clamped(clamp_min, clamp_max, expected):
+    par = FakePar("w", 640, min_=1, max_=9, clamp_min=clamp_min, clamp_max=clamp_max)
+    target = FakeOp("/p/x", builtin_pars=[par])
+    _s, body = call(load({"/p/x": target}), "/parameters", pars={"path": "/p/x"})
+    row = body["result"]["parameters"][0]
+    assert (row["min"], row["max"]) == expected

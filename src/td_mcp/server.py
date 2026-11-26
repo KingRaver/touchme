@@ -34,13 +34,15 @@ def td_project_info() -> schemas.ProjectInfo:
 
 @mcp.tool(annotations=_READ_ONLY)
 def td_get_errors(path: str = "/") -> schemas.ErrorReport:
-    """Errors and warnings across a subtree.
+    """Errors and warnings across a subtree, one row per message.
 
     path: absolute path of the subtree root, for example "/project1". Defaults to the whole
     project ("/"). Reads both the errors and warnings streams; if either cannot be read, the
     report's status is "incomplete" rather than a false all-clear. `caveats` always notes that
     an exception inside a Script operator's own callback is invisible on either stream unless
     the callback catches it and calls addError() — a "clean" status does not rule that out.
+    A report on "/" leaves out TouchDesigner's own "/ui" and "/sys" networks and lists them in
+    `excluded`; pass either path to see inside it.
     """
     return cast(schemas.ErrorReport, BridgeClient().get_errors(path))
 
@@ -52,6 +54,8 @@ def td_snapshot_graph(path: str = "/", max_depth: int = 1) -> schemas.GraphSnaps
     path: absolute path of the root to describe, for example "/project1". Defaults to "/".
     max_depth: how many levels of children to include below the root (0 = root only), capped
     at 8. At most 1000 operators are returned; `truncated` says when that cut the list short.
+    A snapshot of "/" leaves out TouchDesigner's own "/ui" and "/sys" networks and lists them
+    in `excluded`; pass either path to see inside it.
     """
     return cast(schemas.GraphSnapshot, BridgeClient().snapshot_graph(path, max_depth))
 
@@ -81,16 +85,18 @@ def td_get_operator(path: str) -> schemas.OperatorDetail:
 
     path: absolute operator path, for example "/project1/out1". Must match exactly; wildcard
     paths are refused because they resolve to an arbitrary operator, not a chosen one.
+    A parameter's `min`/`max` are clamp limits, null on a side where the value is not clamped.
     """
     return cast(schemas.OperatorDetail, BridgeClient().get_operator(path))
 
 
 @mcp.tool(annotations=_READ_ONLY)
 def td_get_parameters(path: str, name: str | None = None) -> schemas.ParameterList:
-    """Full parameter detail for one operator (value, expression, mode, range, menu items).
+    """Full parameter detail for one operator (value, expression, mode, clamp limits, menu items).
 
     path: absolute operator path, for example "/project1/out1".
     name: optional pattern to filter parameter names, for example "t?" for tx/ty/tz.
+    `min`/`max` are clamp limits, null on a side where the value is not clamped.
     """
     return cast(schemas.ParameterList, BridgeClient().get_parameters(path, name))
 
