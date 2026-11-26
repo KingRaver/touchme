@@ -194,6 +194,7 @@ def test_unknown_route_is_404():
 
 def test_fixture_route_exists_only_in_test_builds():
     assert call(load({}, fixtures="0"), "/ensure-demo")[0] == 404
+    assert call(load({}, fixtures="0"), "/foreign-edit")[0] == 404
     assert call(load({}, fixtures="1"), "/ensure-demo")[0] == 200
 
 
@@ -318,7 +319,7 @@ def test_no_response_ever_carries_a_cors_header():
 
 def test_every_reply_carries_the_bridges_api_version_envelope():
     _status, body = call(load({}), "/nope")  # even a 404 gets the envelope-level field
-    assert body["api_version"] == "0.2.0"
+    assert body["api_version"] == "0.3.0"
 
 
 # --- /project-info -----------------------------------------------------------------------
@@ -501,7 +502,7 @@ def test_outer_fallback_error_still_carries_api_version():
     ns = load({})
     response = {}
     ns["onHTTPRequest"](None, None, response)
-    assert json.loads(response["data"])["api_version"] == "0.2.0"
+    assert json.loads(response["data"])["api_version"] == "0.3.0"
 
 
 def test_multiline_message_continues_the_previous_row():

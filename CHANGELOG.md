@@ -2,6 +2,27 @@
 
 Newest first. Progress and evidence for planned work live in [plans/TD_MCP_BUILD.md](plans/TD_MCP_BUILD.md); this file records what changed and why.
 
+## 2026-11-26: Phase 2, construction
+
+### Added
+- Eight tools that change the open project: `td_create_operator`, `td_connect`, `td_disconnect`, `td_set_parameters`, `td_delete_operator`, `td_layout`, `td_undo`, `td_redo`. Behavior is specified in `specs/TOOL_CATALOG.md`.
+- Each successful change is one TouchDesigner undo entry. A change that fails part way is rolled back and cannot be redone. `td_undo` and `td_redo` stop at any entry the server did not make.
+- Audit log of every change the bridge is asked to make, including refused ones, in `~/.td-mcp/audit.jsonl` (mode `0600`; `build_spike.py --audit-log PATH` moves it). If it cannot be written, nothing is changed.
+- Bridge `POST` routes with a JSON body. The bridge refuses to change its own component, `/ui` or `/sys`, and refuses to delete `/`, `/local` or anything containing itself.
+- `research/PHASE2_UNDO_RESULTS.md`: how undo, creation, wiring and parameters behave on the live build.
+
+### Changed
+- The bridge is no longer read-only. The bridge `API_VERSION` and the server's minimum are now `0.3.0`, so a loaded `0.2.0` bridge is refused: rebuild it and load the new `.tox`.
+- A change whose reply is lost is not retried; the error says it may or may not have been applied.
+
+### Security
+- A parameter expression is Python that TouchDesigner runs, so `td_set_parameters` can run code. It is annotated destructive and open-world. The protected paths guard against mistakes, not against a caller that means harm.
+
+### Known gaps
+- The bridge stops answering in some cases while TouchDesigner is in the background; seen again during the live run. The cause is not confirmed.
+- `td_set_parameters` hides password values, but `td_get_parameters` and `td_get_operator` still return them.
+- Not checked live: disabled undo, an unwritable audit log, a lost reply, a real hand edit between server changes, how `td_layout` output looks in the editor, and wiring through COMP In/Out operators or in the `POP` family.
+
 ## 2026-11-26: Type-check the bridge
 
 ### Changed

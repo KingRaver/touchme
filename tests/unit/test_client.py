@@ -1,4 +1,5 @@
 import base64
+import json
 
 import httpx
 import pytest
@@ -339,3 +340,99 @@ def test_bridge_version_other_than_expected_is_logged(caplog):
     with caplog.at_level("WARNING", logger="td_mcp"):
         _client(handler).ping()
     assert "9.9.9" in caplog.text
+
+
+# --- changes (POST) -------------------------------------------------------------------------
+
+
+def changing(handler):
+    return BridgeClient(token="t", transport=httpx.MockTransport(handler))
+
+
+def ok_change(result):
+    return httpx.Response(200, json={"api_version": "0.3.0", "result": result})
+
+
+@pytest.mark.parametrize(
+    "call, route, body",
+    [
+        (
+            lambda c: c.create_operator("/p", "noiseTOP"),
+            "/create",
+            {"parent": "/p", "type": "noiseTOP"},
+        ),
+        (
+            lambda c: c.create_operator("/p", "noiseTOP", "n", 0, -10),
+            "/create",
+            {"parent": "/p", "type": "noiseTOP", "name": "n", "x": 0, "y": -10},
+        ),
+        (
+            lambda c: c.connect("/p/a", "/p/b"),
+            "/connect",
+            {"source": "/p/a", "target": "/p/b", "source_output": 0, "target_input": 0},
+        ),
+        (
+            lambda c: c.disconnect("/p/b", 2),
+            "/disconnect",
+            {"target": "/p/b", "target_input": 2},
+        ),
+        (
+            lambda c: c.set_parameters("/p/a", [{"name": "amp", "value": 0}]),
+            "/set-parameters",
+            {"path": "/p/a", "parameters": [{"name": "amp", "value": 0}]},
+        ),
+        (lambda c: c.delete_operator("/p/a"), "/delete", {"path": "/p/a"}),
+        (lambda c: c.layout("/p"), "/layout", {"path": "/p"}),
+        (lambda c: c.undo(2), "/undo", {"steps": 2}),
+        (lambda c: c.redo(), "/redo", {"steps": 1}),
+    ],
+)
+def test_changes_are_posted_as_json_with_the_token(call, route, body):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return ok_change({"done": True})
+
+    assert call(changing(handler)) == {"done": True}
+    (request,) = seen
+    assert (request.method, request.url.path) == ("POST", route)
+    assert request.headers["authorization"] == "Bearer t"
+    assert request.headers["content-type"] == "application/json"
+    assert json.loads(request.content) == body
+
+
+def test_a_refused_change_raises_the_bridges_reason():
+    client = changing(lambda request: ok_change({"error": "/p is protected"}))
+    with pytest.raises(BridgeError, match="/p is protected"):
+        client.delete_operator("/p")
+
+
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError])
+def test_a_lost_reply_to_a_change_says_the_outcome_is_unknown_and_does_not_retry(failure):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        raise failure("lost", request=request)
+
+    with pytest.raises(BridgeError, match="may or may not have been applied"):
+        changing(handler).delete_operator("/p/a")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.ConnectTimeout])
+def test_a_change_that_never_connected_is_reported_as_unreachable(failure):
+    def handler(request):
+        raise failure("no", request=request)
+
+    with pytest.raises(BridgeError, match="Cannot reach the bridge"):
+        changing(handler).delete_operator("/p/a")
+
+
+def test_a_read_only_bridge_build_is_refused_before_its_reply_is_used():
+    client = changing(
+        lambda request: httpx.Response(404, json={"api_version": "0.2.0", "error": "no route"})
+    )
+    with pytest.raises(BridgeError, match="Rebuild and reload"):
+        client.delete_operator("/p/a")

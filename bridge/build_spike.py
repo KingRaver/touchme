@@ -1,12 +1,13 @@
-"""Build the Phase 0 bridge .tox from bridge/src/callbacks.py using TouchDesigner's toecollapse.
+"""Build the bridge .tox from bridge/src/callbacks.py using TouchDesigner's toecollapse.
 
 Output goes to bridge/build/ (gitignored: it embeds a fresh per-build token).
 
 Usage:
-  python3 bridge/build_spike.py [--port 9991] [--test-fixtures]
+  python3 bridge/build_spike.py [--port 9991] [--test-fixtures] [--audit-log PATH]
 
   --test-fixtures   also compile in GET /ensure-demo, which the integration test needs.
-                    Default builds are read-only.
+  --audit-log PATH  where the bridge records every change it is asked to make
+                    (default ~/.td-mcp/audit.jsonl, kept across rebuilds).
 
 Environment:
   TD_APP         TouchDesigner.app path (default /Applications/TouchDesigner.app)
@@ -20,6 +21,7 @@ failed run keeps the previous .tox and token.
 """
 
 import argparse
+import json
 import os
 import platform
 import plistlib
@@ -35,6 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "build")
 NAME = "td_mcp_bridge"
 FALLBACK_TD_BUILD = "2025.33230"  # the build this was developed on
+DEFAULT_AUDIT_LOG = os.path.join(os.path.expanduser("~"), ".td-mcp", "audit.jsonl")
 
 
 def encode_dat_text(text: bytes) -> bytes:
@@ -56,7 +59,7 @@ def td_build(app_path):
 		return FALLBACK_TD_BUILD
 
 
-def prepare_script(token, test_fixtures):
+def prepare_script(token, test_fixtures, audit_log=DEFAULT_AUDIT_LOG):
 	"""Return bridge/src/callbacks.py with the build-time placeholders substituted.
 
 	Always reads the source fresh from disk, so what gets embedded in the .tox can never
@@ -66,16 +69,18 @@ def prepare_script(token, test_fixtures):
 	"""
 	with open(os.path.join(HERE, "src", "callbacks.py"), encoding="utf-8") as f:
 		source = f.read()
-	return source.replace("__TOKEN__", token).replace("__TEST_FIXTURES__", "1" if test_fixtures else "0")
+	source = source.replace("__TOKEN__", token).replace("__TEST_FIXTURES__", "1" if test_fixtures else "0")
+	# json.dumps escapes quotes and backslashes, so the path cannot break out of the string.
+	return source.replace('"__AUDIT_LOG__"', json.dumps(os.path.abspath(audit_log)))
 
 
-def build(tmp, port, test_fixtures, app_path):
+def build(tmp, port, test_fixtures, app_path, audit_log=DEFAULT_AUDIT_LOG):
 	toecollapse = os.path.join(app_path, "Contents", "MacOS", "toecollapse")
 	if not os.access(toecollapse, os.X_OK):
 		sys.exit(f"toecollapse not found at {toecollapse}. Set TD_APP to your TouchDesigner.app.")
 
 	token = secrets.token_urlsafe(24)
-	script = prepare_script(token, test_fixtures)
+	script = prepare_script(token, test_fixtures, audit_log)
 
 	d = os.path.join(tmp, NAME + ".tox.dir")
 	child = os.path.join(d, NAME)
@@ -114,14 +119,16 @@ def main():
 	parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
 	parser.add_argument("--port", type=port_number, default=9991)
 	parser.add_argument("--test-fixtures", action="store_true")
+	parser.add_argument("--audit-log", default=DEFAULT_AUDIT_LOG)
 	args = parser.parse_args()
+	audit_log = os.path.abspath(os.path.expanduser(args.audit_log))
 	app_path = os.environ.get("TD_APP", "/Applications/TouchDesigner.app")
 
 	os.umask(0o077)  # everything below, and toecollapse's output, is private to this user
 	tmp = tempfile.mkdtemp(prefix=".build-", dir=HERE)
 	old = tmp + ".old"
 	try:
-		build(tmp, args.port, args.test_fixtures, app_path)
+		build(tmp, args.port, args.test_fixtures, app_path, audit_log)
 		if os.path.exists(OUT):
 			os.rename(OUT, old)
 		os.rename(tmp, OUT)
@@ -136,6 +143,7 @@ def main():
 		print(f"warning: could not remove {old} (holds the previous token). Delete it.", file=sys.stderr)
 	print("built:", os.path.join(OUT, NAME + ".tox"))
 	print(f"port: {args.port} | test fixtures: {args.test_fixtures} | token file (0600): {os.path.join(OUT, 'token.txt')}")
+	print(f"audit log (0600): {audit_log}")
 
 
 if __name__ == "__main__":

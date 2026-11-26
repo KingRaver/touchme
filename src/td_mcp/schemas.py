@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NotRequired
+
 # pydantic (via FastMCP's output-schema generation) requires typing_extensions.TypedDict on
 # Python < 3.12, not typing.TypedDict, to see required/not-required field metadata.
 from typing_extensions import TypedDict
@@ -108,3 +110,99 @@ class ParameterList(TypedDict):
     path: str
     parameter_count: int
     parameters: list[ParameterDetail]
+
+
+class ParameterChange(TypedDict):
+    """One input to td_set_parameters: a name plus exactly one of value, expr or bind."""
+
+    name: str
+    value: NotRequired[bool | int | float | str]
+    expr: NotRequired[str]
+    bind: NotRequired[str]
+
+
+class ChangeResult(TypedDict):
+    undo_label: str | None  # the TouchDesigner undo entry holding this change
+    audit_warning: str | None  # set when the change was applied but could not be logged
+
+
+class CreatedOperator(ChangeResult):
+    path: str
+    type: str
+    family: str
+    requested_name: str | None
+    renamed: bool  # True when the requested name was taken and TouchDesigner chose another
+    x: int
+    y: int
+    also_created: list[str]  # operators TouchDesigner adds alongside, such as docked DATs
+
+
+class Connection(ChangeResult):
+    source: str
+    target: str
+    source_output: int
+    target_input: int
+    replaced: list[str]  # sources that were on this input before
+    inputs: list[str]  # the target's inputs now
+
+
+class Disconnection(ChangeResult):
+    target: str
+    target_input: int
+    removed: list[str]
+    inputs: list[str]  # the target's inputs now; later inputs may have moved up
+
+
+class ParameterState(TypedDict):
+    mode: str  # "CONSTANT" | "EXPRESSION" | "BIND" | "EXPORT"
+    value: float | int | str | bool | None
+    expr: str | None
+    bind: str | None
+
+
+class ChangedParameter(ParameterState):
+    name: str
+    previous: ParameterState
+    adjusted: bool  # True when TouchDesigner stored a different number than requested (clamping)
+    warning: str | None
+
+
+class ParametersChanged(ChangeResult):
+    path: str
+    parameters: list[ChangedParameter]
+
+
+class Wiring(TypedDict):
+    path: str
+    inputs: list[str]
+
+
+class DeletedOperator(ChangeResult):
+    deleted: str
+    type: str
+    family: str
+    descendants: int
+    disconnected_inputs: list[str]
+    disconnected_outputs: list[str]
+    downstream: list[Wiring]  # what each former output is wired to now
+    also_deleted: list[str]  # operators docked to the deleted one
+
+
+class NodePosition(TypedDict):
+    path: str
+    x: int
+    y: int
+
+
+class LayoutResult(ChangeResult):
+    path: str
+    operators: list[NodePosition]
+    skipped: list[str]  # annotations and protected operators, which are not moved
+
+
+class HistoryResult(TypedDict):
+    action: str  # "undo" | "redo"
+    done: list[str]  # undo entries stepped through, in order
+    stopped: str | None  # why fewer steps than requested were taken
+    next: str | None  # the server-made entry that another call would take, if any
+    audit_warning: str | None

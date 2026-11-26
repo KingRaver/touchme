@@ -8,7 +8,9 @@ one thing that could still make an embedded script stale even though nothing is 
 never a cached or hand-copied string. Needs no TouchDesigner, so it runs in CI.
 """
 
+import ast
 import importlib.util
+import json
 from pathlib import Path
 
 BRIDGE_DIR = Path(__file__).parents[2] / "bridge"
@@ -23,10 +25,14 @@ def _load_build_spike():
     return module
 
 
-def test_prepared_script_is_the_current_source_with_only_the_two_placeholders_filled():
+def test_prepared_script_is_the_current_source_with_only_the_placeholders_filled():
     build_spike = _load_build_spike()
     script = build_spike.prepare_script("tok-123", test_fixtures=False)
-    expected = SOURCE.replace("__TOKEN__", "tok-123").replace("__TEST_FIXTURES__", "0")
+    expected = (
+        SOURCE.replace("__TOKEN__", "tok-123")
+        .replace("__TEST_FIXTURES__", "0")
+        .replace('"__AUDIT_LOG__"', json.dumps(build_spike.DEFAULT_AUDIT_LOG))
+    )
     assert script == expected
     assert "__TOKEN__" not in script and "__TEST_FIXTURES__" not in script
 
@@ -42,3 +48,16 @@ def test_prepared_script_reads_the_source_file_fresh_every_call(tmp_path, monkey
     script = build_spike.prepare_script("tok", test_fixtures=True)
 
     assert "# decoy marker: must appear below" in script
+
+
+def test_audit_log_path_is_embedded_as_a_python_string_that_cannot_break_out(tmp_path):
+    build_spike = _load_build_spike()
+    awkward = str(tmp_path / 'a "quoted"\\ name.jsonl')
+
+    script = build_spike.prepare_script("tok", test_fixtures=False, audit_log=awkward)
+
+    line = next(row for row in script.splitlines() if row.startswith("_AUDIT_SETTING = "))
+    assert ast.literal_eval(line.split(" = ", 1)[1].split("  #")[0]) == awkward
+    namespace: dict[str, object] = {}
+    exec(compile(script, "callbacks.py", "exec"), namespace)  # noqa: S102
+    assert namespace["AUDIT_LOG"] == awkward

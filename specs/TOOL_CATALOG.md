@@ -2,7 +2,7 @@
 
 Type: spec
 Status: open
-Last verified: 2026-11-26 at `369aabd`
+Last verified: 2026-11-26 at `a569928`
 
 The MCP tools the server exposes. All names use a `td_` prefix. Read-only tools carry `readOnlyHint`. Tools that delete or overwrite carry `destructiveHint`. Structure and constraints are in `specs/ARCHITECTURE.md`. Build order is in `plans/TD_MCP_BUILD.md`.
 
@@ -38,11 +38,36 @@ is not clamped on that side.
 |---|---|
 | `td_create_operator` | Create by type name inside a parent. Validates the type first. |
 | `td_connect` / `td_disconnect` | Wire inputs and outputs. |
-| `td_set_parameters` | Batch-set values, expressions or export bindings in one atomic undo step. |
+| `td_set_parameters` | Batch-set values, expressions or bind references in one atomic undo step. |
 | `td_delete_operator` | Destructive. Requires an explicit path. |
 | `td_layout` | Auto-arrange a network so it stays readable. |
 | `td_instantiate_palette` | Load a Palette component by name. |
 | `td_apply_recipe` | Build a known-good network (feedback loop, GLSL pass, audio-reactive chain, and so on). |
+
+Every construction tool, and `td_undo` and `td_redo`, follows these rules. Evidence for the
+TouchDesigner behavior behind them is in `research/PHASE2_UNDO_RESULTS.md`.
+
+- One successful call is one TouchDesigner undo entry, named `td-mcp <id>: ...` and returned as
+  `undo_label`. A call that fails part way is rolled back, and its entry cannot be redone. A
+  rolled-back call still discards whatever could have been redone before it.
+- Each call is written to the audit log before and after it is applied; refused calls are logged
+  too. If the log cannot be written, nothing is changed. If only the final line fails, the reply
+  carries `audit_warning`. Nothing is changed while undo is disabled in TouchDesigner.
+- Paths must be exact. The bridge's own component, `/ui` and `/sys` cannot be changed. `/`,
+  `/local` and any COMP containing the bridge cannot be deleted.
+- A lost reply is never retried. The error says the change may or may not have been applied.
+
+| Tool | Behavior |
+|---|---|
+| `td_create_operator` | Type names include the family (`noiseTOP`); an unknown one suggests the closest. Names are letters, digits and underscores. A taken name is reported as `renamed`. Docked operators TouchDesigner adds are listed in `also_created`. Without a position, the node goes right of the existing ones. |
+| `td_connect` | Both operators must be in the same network. Replaces what was on the input and lists it. Wires the left and right connectors only, not 3D or panel parenting. |
+| `td_disconnect` | One input per call. Returns the inputs left, since later ones can move up. |
+| `td_set_parameters` | Each change is exactly one of `value`, `expr` or `bind`. Wrong types and unknown menu entries are refused rather than coerced. `value` on a bound parameter changes only that parameter. A dead expression or bind fails the whole batch. Exported and read-only parameters and pulse buttons are refused. A clamped number is marked `adjusted`. Password values are not logged or returned by this tool. CHOP and DAT exports cannot be created: the Python parameter API exposes them read-only. |
+| `td_delete_operator` | Reports former wires, operators deleted with it, and `downstream` wiring, which TouchDesigner may have spliced to the deleted operator's source. |
+| `td_layout` | Direct children in columns by signal flow, keeping the network's top-left corner. Docked operators move with their host; annotations and protected operators stay. |
+| `td_undo` / `td_redo` | 1 to 20 steps. Stops at the first entry the server did not make and leaves it alone. |
+
+Undoing a bind restores the mode and value, but TouchDesigner keeps the unused bind text.
 
 ## Project and timeline
 
