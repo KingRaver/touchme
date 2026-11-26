@@ -416,6 +416,35 @@ def test_sheet_with_a_feedback_loop_gives_identical_cells_and_advances_one_step(
     assert level() == cells[0] > before
 
 
+@pytest.mark.parametrize("capture_mode", ["timeslice", "inputcooks"])
+def test_sheet_frames_are_recorded_by_a_trail_chop(box, capture_mode):
+    """What the tool's description warns about."""
+    clock = new(box, "timelineCHOP", "clock")
+    put(clock, frame=True)
+    trail = new(box, "trailCHOP", "trail")
+    wire(clock, trail)
+    put(trail, wlength=8, wlengthunit="samples", capture=capture_mode)
+    newest = "op('trail')[0][op('trail').numSamples-1]/255"
+    view = flat(box, "view", **gray(newest))
+
+    def history() -> list[int]:
+        return [round(v) for v in call("td_read_chop", path=trail)["channels"][0]["values"]]
+
+    call("td_timeline", frame=7, play=False)
+    history()
+    call("td_timeline", frame=9)
+    before = history()
+    assert history() == before, "reading does not advance a paused trail"
+    call("td_capture_contact_sheet", paths=[view])
+    assert history() == before, "a sheet without frames records nothing"
+
+    sheet = call("td_capture_contact_sheet", paths=[view], frames=[50, 100, 200])
+
+    assert reds(sheet, 2) == pytest.approx([50, 100], abs=1)
+    assert history()[-4:] == [50, 100, 200, 9]
+    assert timeline()["frame"] == 9
+
+
 @pytest.mark.parametrize("pixel_format", ["rgba8fixed", "rgba32float", "mono8fixed",
                                           "mono32float", "rg16float"])
 @pytest.mark.parametrize("image_format", ["png", "jpg"])

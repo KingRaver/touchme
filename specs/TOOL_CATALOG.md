@@ -40,9 +40,12 @@ reported in full (subject to the snapshot's limits), with `excluded` empty.
 - Frames are whole numbers inside the timeline's playback range; others are refused. Each is
   set on the root timeline and the target force-cooked, all within one request, and the
   timeline is put back, also after a failure.
-- Only what is computed from the timeline frame follows it. `absTime`, LFO and time-sliced
-  CHOPs do not. A stateful network such as a feedback loop gives identical cells, **and the
-  call advances its state by one step**.
+- Cells follow what is computed from the timeline frame. `absTime`, LFO CHOPs and time-sliced
+  Noise CHOPs do not.
+- **With `frames`, the call changes stateful networks it cooks**, even if it is then refused,
+  and `td_undo` does not reverse it. A feedback loop gives identical cells and advances one
+  step. A Trail CHOP records the requested frames into its history. The tool is therefore
+  annotated destructive, not read-only; it is not written to the audit log.
 - A TOP over 480x480 pixels in area is scaled down to fit that area, and one over 2048x2048 is
   refused. A cell is at most 768 KiB and the cells of one sheet 10 MiB. The server tiles them,
   centred in equal slots without resizing, and returns an image only.
@@ -125,8 +128,8 @@ project-wide resolution property (docs.derivative.ca's `App_Class`/`Project_Clas
 2026-11-25), only per-operator and per-window ones. Revisit once a specific output-resolution
 need (e.g. the Window COMP backing the perform window) is identified.
 
-`td_timeline` changes the root timeline (`op('/').time`) and follows the construction rules
-above, except that it names no path:
+`td_timeline` changes the root timeline (`op('/').time`), is annotated destructive, and follows
+the construction rules above, except that it names no path:
 
 - Any of `play`, `frame`, `start`, `end`; at least one. Frame numbers are whole.
 - `start` and `end` also set the playback range, which TouchDesigner keeps separately and wraps

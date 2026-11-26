@@ -14,6 +14,7 @@ Newest first. Progress and evidence for planned work live in [plans/TD_MCP_BUILD
 ### Changed
 - The bridge `API_VERSION` and the server's minimum are now `0.5.0`: rebuild the bridge and load the new `.tox`.
 - Pillow is now a runtime dependency, because the server tiles contact sheets: run `uv sync`.
+- `td_timeline` and `td_capture_contact_sheet` are annotated destructive: the first overwrites the playhead and range, the second can change stateful networks.
 
 ### Fixed
 - A parameter value that is NaN or infinite no longer breaks `td_set_parameters`, `td_get_parameters` or `td_get_operator`. It reads as `"nan"`, `"inf"` or `"-inf"`, and an expression or bind that evaluates to one is applied with a `warning`.
@@ -23,9 +24,9 @@ Newest first. Progress and evidence for planned work live in [plans/TD_MCP_BUILD
 - DAT reads replace the bridge token with `<redacted>`, since the bridge's own script holds it. A network that transforms the text could still show it.
 
 ### Known gaps
-- Contact-sheet frames follow only what is computed from the timeline frame. `absTime`, LFO and time-sliced CHOPs do not.
-- `td_capture_contact_sheet` with `frames` advances a stateful network, such as a feedback loop, by one step, although the tool is annotated read-only.
-- Not checked live: time-dependent media in contact-sheet frames, a large user project, a timeline with its own Time COMP, and `POP` operators.
+- Contact-sheet frames follow what is computed from the timeline frame. `absTime`, LFO and time-sliced Noise CHOPs do not.
+- `td_capture_contact_sheet` with `frames` changes stateful networks it cooks: a feedback loop advances a step and a Trail CHOP records the frames. `td_undo` does not reverse this, and it is not in the audit log.
+- Not checked live: time-dependent media or Cache operators in contact-sheet frames, a Trail CHOP with Grow Length on, a large user project, a timeline with its own Time COMP, and `POP` operators.
 
 ## 2026-11-26: Phase 3, knowledge
 

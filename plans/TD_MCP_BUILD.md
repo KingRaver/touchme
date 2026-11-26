@@ -132,10 +132,15 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
     the stdio server with TouchDesigner in front. The points above are answered in
     `research/PHASE4_LIVE_RESULTS.md`, which also lists two problems found in earlier phases'
     tools and not fixed, and what was not tested.
-  - **Note 2026-11-26:** the two problems in earlier phases' tools (non-finite parameter values and
+  - Note 2026-11-26: the two problems in earlier phases' tools (non-finite parameter values and
     space-separated name patterns) are fixed on the same uncommitted tree. ruff and pyright
     clean, 442 unit tests pass, and all 78 integration tests passed in one live run on
     2025.33230. Evidence in `research/PHASE4_LIVE_RESULTS.md`.
+  - **Note 2026-11-26:** Trail CHOP, which the note above on the first live run wrongly counted
+    as answered, is now tested: contact-sheet frames are recorded into its history. The tool's
+    warning is corrected, and `td_timeline` and `td_capture_contact_sheet` are annotated
+    destructive. ruff and pyright clean, 442 unit tests pass, and all 80 integration tests
+    passed in one live run on 2025.33230. Evidence in `research/PHASE4_LIVE_RESULTS.md`.
 
 ### Phase 5: Recipes and polish
 

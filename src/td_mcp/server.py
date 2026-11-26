@@ -18,7 +18,8 @@ mcp = FastMCP("td-mcp")
 _READ_ONLY = {"readOnlyHint": True, "openWorldHint": False}
 # Adds to the project without removing or overwriting anything.
 _ADDITIVE = {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
-# Removes or overwrites something. All of these can be reversed with td_undo.
+# Removes or overwrites something. td_undo reverses these, except what
+# td_capture_contact_sheet changes inside a stateful network.
 _DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
 # A parameter expression is Python that TouchDesigner runs, so it can reach outside the project.
 _SETS_EXPRESSIONS = {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}
@@ -53,7 +54,7 @@ def _tile_cells(cells: list[ContactCell], format: str, columns: int | None) -> I
     return Image(data=buffer.getvalue(), format=format)
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(annotations=_DESTRUCTIVE)
 def td_capture_contact_sheet(
     paths: list[str],
     frames: list[float] | None = None,
@@ -66,10 +67,12 @@ def td_capture_contact_sheet(
     paths: 1 to 16 absolute TOP paths. Without `frames`, each is captured at the current frame.
     frames: optional, at most 12 whole frame numbers inside the timeline's playback range. Every
     path is captured at every frame (cells go left to right, top to bottom, path by path), then
-    the timeline is put back. Only things computed from the timeline frame change between cells
-    (expressions on me.time.frame, a Timeline CHOP). Anything driven by absTime, time-sliced
-    CHOPs and LFOs do not follow, and a stateful network (Feedback TOP and the like) gives
-    identical cells while the call advances its state by one step.
+    the timeline is put back. Cells follow what is computed from the timeline frame
+    (expressions on me.time.frame, a Timeline CHOP); absTime, time-sliced Noise CHOPs and LFOs
+    do not follow. With `frames` the call can change stateful networks it cooks, even when it
+    is then refused, and td_undo does not reverse that: a feedback loop gives identical cells
+    and advances one step, and a Trail CHOP records the requested frames into its history.
+    Without `frames` nothing was seen to change.
     format: "png" or "jpg". A TOP larger than 480x480 pixels in area is scaled down. Cells
     keep their shape; smaller ones sit centred on a dark grey background.
     columns: optional grid width. Defaults to a roughly square grid.
@@ -83,7 +86,7 @@ def td_project_info() -> schemas.ProjectInfo:
     return cast(schemas.ProjectInfo, BridgeClient().project_info())
 
 
-@mcp.tool(annotations=_ADDITIVE)
+@mcp.tool(annotations=_DESTRUCTIVE)
 def td_timeline(
     play: bool | None = None,
     frame: float | None = None,

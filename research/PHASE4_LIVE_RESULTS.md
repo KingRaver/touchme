@@ -65,14 +65,32 @@ Frames are set and cooked inside one callback.
 | Expression on `absTime.frame` | Identical cells |
 | LFO CHOP, and a time-sliced Noise CHOP | Values differed from those read after stepping the timeline one request at a time |
 | Feedback loop | Identical cells; each call advanced it one step. Plain captures of the paused loop did not advance it |
+| Trail CHOP | Cells differed and the call wrote into its history; see below |
 
 The timeline was restored after success and after a refusal part way through, paused or playing.
+
+### Trail CHOP
+
+Measured 2026-11-26 at `a4b218d`, same build and setup: a Timeline CHOP into Trail CHOPs of 8 and 600 samples, both capture modes (`timeslice`, `inputcooks`) at 8 samples and `timeslice` at 600.
+
+| Check | Result |
+|---|---|
+| Paused: reading the trail, `td_capture_top`, a sheet without `frames` | History unchanged |
+| Cells for frames 50, 100, 200 | The newest sample in each cell was that frame; older samples accumulated from cell to cell |
+| Paused: history afterwards | Gained 50, 100, 200, then one more sample for the frame returned to |
+| Playing, 600 samples | History read 509, 20, 40, 510: the requested frames sit inside the live recording |
+| The same frame three times | One sample for the three, then the returned one |
+| Refused part way through | Timeline restored; the cells already cooked stayed in the history |
+| A sheet of a TOP not using the trail, paused | History unchanged |
+| `td_undo` afterwards | The sheet had added no undo entry |
+
+Stepping the timeline one request at a time also records one sample per step. Both capture modes gave the same results with this input, which cooks on every frame change.
 
 Scaling with `numpyArray()` and OpenCV differed from a box-filtered `td_capture_top` image by a mean under 4 of 255 per channel for `rgba8fixed`, `rgba32float`, `mono8fixed`, `mono32float` and `rg16float`, as PNG and JPEG. A sheet of 24 scaled 1280x720 cells took 0.92 s, including starting the server process.
 
 ## Final run
 
-All 73 tests in `tests/integration/` (36 new) passed in one run, about 320 s. After the two fixes to earlier tools below, all 78 passed in one run, about 348 s.
+All 73 tests in `tests/integration/` (36 new) passed in one run, about 320 s. After the two fixes to earlier tools below, all 78 passed in one run, about 348 s. With the two Trail CHOP tests and the corrected annotations, all 80 passed in one run, about 369 s.
 
 ## Found in earlier tools, then fixed
 
@@ -87,7 +105,8 @@ The new live tests failed (5 of 5) against the bridge from before the fix.
 
 ## Not tested
 
-- Time-dependent media, such as a Movie File In TOP, in contact-sheet frames.
+- Time-dependent media, such as a Movie File In TOP, and Cache operators in contact-sheet frames.
+- A Trail CHOP with Grow Length on, or with an input that does not cook on every frame change.
 - A large user project, timelines with their own Time COMP, and `POP` operators.
 - Timeline changes with undo disabled (unit-tested for other changes only).
 - Other builds and platforms.

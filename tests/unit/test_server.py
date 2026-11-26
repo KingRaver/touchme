@@ -13,7 +13,6 @@ from td_mcp.client import Capture, ContactCell
 
 READ_ONLY_TOOLS = [
     "td_capture_top",
-    "td_capture_contact_sheet",
     "td_project_info",
     "td_get_errors",
     "td_snapshot_graph",
@@ -28,9 +27,9 @@ READ_ONLY_TOOLS = [
     "td_get_performance",
 ]
 
-# Image-returning tools (no JSON outputSchema, by MCP design).
-_IMAGE_TOOLS = {"td_capture_top", "td_capture_contact_sheet"}
-STRUCTURED_TOOLS = [t for t in READ_ONLY_TOOLS if t not in _IMAGE_TOOLS]
+# Tools returning a JSON-shaped result (everything but td_capture_top, which returns an MCP
+# Image: there is no JSON outputSchema for that, by MCP design).
+STRUCTURED_TOOLS = [t for t in READ_ONLY_TOOLS if t != "td_capture_top"]
 
 
 def _list_tools():
@@ -246,12 +245,22 @@ CHANGE_TOOLS = {
     "td_layout": (True, False),
     "td_undo": (True, False),
     "td_redo": (True, False),
-    "td_timeline": (False, False),
+    "td_timeline": (True, False),  # overwrites the playhead and range
 }
 
 
 def test_the_server_exposes_exactly_the_expected_tools():
-    assert set(_list_tools()) == set(READ_ONLY_TOOLS) | set(CHANGE_TOOLS)
+    expected = set(READ_ONLY_TOOLS) | set(CHANGE_TOOLS) | {"td_capture_contact_sheet"}
+    assert set(_list_tools()) == expected
+
+
+def test_the_contact_sheet_is_not_annotated_read_only():
+    """With frames it advances feedback loops and writes into Trail CHOPs."""
+    annotations = _list_tools()["td_capture_contact_sheet"].annotations
+    assert annotations is not None
+    assert annotations.read_only_hint is False
+    assert annotations.destructive_hint is True
+    assert annotations.open_world_hint is False
 
 
 @pytest.mark.parametrize("name", CHANGE_TOOLS)

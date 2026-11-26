@@ -57,6 +57,9 @@ Long operations must not freeze TouchDesigner. The bridge enforces a per-request
 - Reading an operator type creates a temporary operator in the bridge's own component. Hardware
   types are never created for this, because creating them can ask for device permissions or open
   sockets even with cooking off (`research/PHASE3_KNOWLEDGE_RESULTS.md`).
+- Exception to the audit and `POST` rules: `td_capture_contact_sheet` with `frames` is a `GET`
+  with no undo entry or audit line. It puts the timeline back, but stateful networks cooked
+  along the way keep what changed (`research/PHASE4_LIVE_RESULTS.md`).
 - DAT reads replace the bearer token with `<redacted>`: the bridge's own script holds it.
 - Mutating routes take `POST` with a JSON body. The bridge refuses to change its own component,
   `/ui` and `/sys`. This guards against mistakes only: parameter expressions are Python run by

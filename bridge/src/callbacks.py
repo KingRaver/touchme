@@ -22,7 +22,9 @@ Hardware types (DEVICE_TYPE_PREFIXES) are never created: creating some of them a
 permission or opened network sockets (research/PHASE3_KNOWLEDGE_RESULTS.md).
 /performance reads from a temporary Perform CHOP, created, cooked and destroyed the same way,
 also outside any undo block. /contact-cells, when `frames` is given, moves the project timeline
-to each requested frame and restores it before replying; nothing is left changed either way.
+to each requested frame and restores it before replying. Stateful networks cooked along the way
+keep what changed (a feedback loop advances, a Trail CHOP records the frames), with no undo
+entry or audit line.
 Change routes (POST, JSON object body): /create, /connect, /disconnect, /set-parameters,
 /delete, /layout, /undo, /redo, /timeline. Each change is one TouchDesigner undo entry and is
 written to the audit log before it is applied; if the log cannot be written, nothing is changed.
