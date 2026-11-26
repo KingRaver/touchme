@@ -11,6 +11,9 @@ dependencies = [
     # Python < 3.12 (src/td_mcp/schemas.py). Already a transitive dep; pinned explicitly
     # because the server imports it directly.
     "typing-extensions>=4.12,<5",
+    # td_capture_contact_sheet decodes each cell the bridge returns and tiles them into one
+    # image on the server side (not inside TouchDesigner's main thread).
+    "pillow>=13.0.0",
 ]
 
 [project.scripts]
@@ -21,7 +24,6 @@ dev = [
     "pytest",
     "ruff",
     "pyright",
-    "pillow>=13.0.0",
 ]
 
 [build-system]

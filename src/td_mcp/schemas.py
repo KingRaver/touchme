@@ -260,3 +260,90 @@ class HistoryResult(TypedDict):
     stopped: str | None  # why fewer steps than requested were taken
     next: str | None  # the server-made entry that another call would take, if any
     audit_warning: str | None
+
+
+class OperatorCost(TypedDict):
+    path: str
+    type: str | None
+    family: str | None
+    cpu_cook_ms: float | None
+    gpu_cook_ms: float | None
+    total_cooks: int | None
+    cooked_this_frame: bool | None
+
+
+class PerformanceReport(TypedDict):
+    fps: float | None
+    target_fps: float | None  # the project's cook rate (Perform CHOP's "cookrate" channel)
+    frame_ms: float | None
+    dropped_frames: float | None
+    realtime: bool | None
+    cpu_mem_mb: float | None
+    gpu_mem_mb: float | None
+    gpu_mem_total_mb: float | None
+    active_ops: float | None
+    deactivated_op_calls: float | None
+    total_ops: float | None
+    unread_channels: list[str]  # Perform CHOP channels that gave no value
+    path: str
+    max_depth: int
+    operator_count: int
+    truncated: bool  # True when the operator cap cut the ranked subtree short
+    excluded: list[str]  # subtrees left out of a "/" scan; empty for any other path
+    top_cpu_cost: list[OperatorCost]
+
+
+class ChopChannel(TypedDict):
+    name: str
+    values: list[float | str]  # "nan", "inf" and "-inf" are given as text
+
+
+class ChopSamples(TypedDict):
+    path: str
+    num_channels: int  # total channels on the CHOP, before any `channels` filter
+    matched_channels: int  # channels the filter matched, before the channel-count cap
+    channels_truncated: bool  # True when the channel cap cut matched_channels short
+    num_samples: int
+    rate: float | None
+    start: int
+    count: int  # samples returned; fewer near the end, or when many channels share the reply
+    next_offset: int | None
+    channels: list[ChopChannel]
+
+
+class DatTable(TypedDict):
+    path: str
+    is_table: bool  # False for a text DAT, which reports `text` instead of `rows`
+    num_rows: int
+    num_cols: int
+    row_offset: int
+    row_limit: int  # rows returned; fewer near the end, or when the cells are long
+    next_row_offset: int | None
+    columns_truncated: bool  # True when the column cap left columns out of every row
+    rows: list[list[str]]
+    text: str | None  # set only when is_table is False; clipped to protect context
+
+
+class SopInfo(TypedDict):
+    path: str
+    num_points: int
+    num_prims: int
+    num_vertices: int
+    min: list[float] | None  # [x, y, z] of the geometry's bounds
+    max: list[float] | None
+    size: list[float] | None
+    point_groups: list[str]
+    prim_groups: list[str]
+    point_attributes: list[str]  # position (P) is always present and is not listed
+    prim_attributes: list[str]
+    vertex_attributes: list[str]
+
+
+class TimelineDetail(TimelineState):
+    range_start: float | None  # the playback range the playhead stays inside
+    range_end: float | None
+
+
+class TimelineChanged(ChangeResult):
+    previous: TimelineDetail
+    timeline: TimelineDetail

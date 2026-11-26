@@ -97,6 +97,8 @@ class FakePar:
         if self.mode == ParMode.EXPRESSION:
             if "bad" in self.expr:
                 raise RuntimeError("Error in parameter " + self.name)
+            if self.expr.startswith("float('"):
+                return float(self.expr.split("'")[1])
             return 0.5
         if self.mode == ParMode.BIND:
             master = self.bindMaster
@@ -697,6 +699,37 @@ def test_a_dead_expression_or_bind_rolls_the_whole_batch_back(bridge, failing):
     result = set_pars(bridge, {"name": "amp", "value": 0.1}, failing)
     assert "Nothing was changed" in result["error"]
     assert node.par["amp"].val == 1.0 and node.par["res"].mode == ParMode.CONSTANT
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_an_expression_that_is_not_finite_is_applied_warned_and_sent_as_text(bridge, value):
+    node = noise(bridge)
+    expr = f"float('{value}')"
+
+    (row,) = set_pars(bridge, {"name": "amp", "expr": expr})["parameters"]
+
+    assert (row["mode"], row["value"]) == ("EXPRESSION", value)
+    assert row["warning"] == f"the expr evaluates to {value}"
+    assert node.par["amp"].mode == ParMode.EXPRESSION
+    # Replacing it must reply too, although the previous value is not finite.
+    (back,) = set_pars(bridge, {"name": "amp", "value": 1.0})["parameters"]
+    assert (back["previous"]["value"], back["value"], back["warning"]) == (value, 1.0, None)
+
+    def strict(constant):
+        raise AssertionError(f"{constant} in the audit log is not JSON")
+
+    for line in bridge.audit_path.read_text().splitlines():
+        json.loads(line, parse_constant=strict)
+
+
+def test_a_bind_to_a_value_that_is_not_finite_is_warned(bridge):
+    noise(bridge)
+    make(bridge, "/project1/m").add("amp", float("nan"))
+
+    (row,) = set_pars(bridge, {"name": "amp", "bind": "/project1/m:amp"})["parameters"]
+
+    assert (row["mode"], row["value"]) == ("BIND", "nan")
+    assert row["warning"] == "the bind evaluates to nan"
 
 
 def test_setting_a_value_on_a_bound_parameter_leaves_the_master_alone(bridge):

@@ -295,6 +295,116 @@ def test_get_parameters_sends_optional_name_pattern():
     assert seen["query"] == {"path": "/p/out", "name": "reso*"}
 
 
+# --- performance and data (Phase 4) ------------------------------------------------------------
+
+
+def test_get_performance_sends_path_top_n_and_maxdepth():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"fps": 60.0, "top_cpu_cost": []})
+
+    _client(handler).get_performance("/p", top_n=5, max_depth=2)
+    assert seen["query"] == {"path": "/p", "top_n": "5", "maxdepth": "2"}
+
+
+def test_read_chop_omits_channels_when_not_given():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"channels": []})
+
+    _client(handler).read_chop("/p/c")
+    assert seen["query"] == {"path": "/p/c", "start": "0", "count": "100"}
+
+
+def test_read_chop_includes_channels_when_given():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"channels": []})
+
+    _client(handler).read_chop("/p/c", channels="tx ty", start=10, count=5)
+    assert seen["query"] == {"path": "/p/c", "start": "10", "count": "5", "channels": "tx ty"}
+
+
+def test_read_dat_sends_row_offset_and_limit():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"rows": []})
+
+    _client(handler).read_dat("/p/d", row_offset=20, row_limit=50)
+    assert seen["query"] == {"path": "/p/d", "row_offset": "20", "row_limit": "50"}
+
+
+def test_read_sop_info_sends_the_path():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"num_points": 0})
+
+    _client(handler).read_sop_info("/p/s")
+    assert seen["query"] == {"path": "/p/s"}
+
+
+def test_contact_cells_decodes_each_cell():
+    cell_png = b"\x89PNG fake cell"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _ok(
+            {
+                "format": "png",
+                "cells": [
+                    {
+                        "path": "/p/a", "frame": 3.0, "width": 4, "height": 2,
+                        "data_b64": base64.b64encode(cell_png).decode(),
+                    }
+                ],
+            }
+        )
+
+    cells = _client(handler).contact_cells(["/p/a"], [3.0])
+    assert len(cells) == 1
+    cell = cells[0]
+    assert (cell.path, cell.frame, cell.data, cell.width, cell.height) == ("/p/a", 3.0, cell_png, 4, 2)
+
+
+def test_contact_cells_sends_comma_joined_paths_and_frames():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"cells": []})
+
+    _client(handler).contact_cells(["/p/a", "/p/b"], [1.0, 2.0], fmt="jpg")
+    assert seen["query"] == {"paths": "/p/a,/p/b", "frames": "1.0,2.0", "format": "jpg"}
+
+
+def test_contact_cells_omits_frames_param_when_not_given():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return _ok({"cells": []})
+
+    _client(handler).contact_cells(["/p/a"])
+    assert seen["query"] == {"paths": "/p/a", "format": "png"}
+
+
+def test_contact_cells_raises_on_a_malformed_reply():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _ok({"cells": [{"path": "/p/a"}]})  # no data_b64
+
+    with pytest.raises(BridgeError):
+        _client(handler).contact_cells(["/p/a"])
+
+
 # --- Review fixes -----------------------------------------------------------------------------
 
 
@@ -385,6 +495,8 @@ def ok_change(result):
         (lambda c: c.layout("/p"), "/layout", {"path": "/p"}),
         (lambda c: c.undo(2), "/undo", {"steps": 2}),
         (lambda c: c.redo(), "/redo", {"steps": 1}),
+        (lambda c: c.timeline(play=True, frame=50), "/timeline", {"play": True, "frame": 50}),
+        (lambda c: c.timeline(frame=50.0), "/timeline", {"frame": 50.0}),
     ],
 )
 def test_changes_are_posted_as_json_with_the_token(call, route, body):

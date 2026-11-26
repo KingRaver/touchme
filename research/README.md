@@ -10,3 +10,4 @@ Verified facts and reference notes: what we looked at and what we might use.
 | Phase 1 live results | [PHASE1_LIVE_RESULTS.md](PHASE1_LIVE_RESULTS.md) | complete-with-open-items |
 | Phase 2 undo and construction results | [PHASE2_UNDO_RESULTS.md](PHASE2_UNDO_RESULTS.md) | complete-with-open-items |
 | Phase 3 knowledge results | [PHASE3_KNOWLEDGE_RESULTS.md](PHASE3_KNOWLEDGE_RESULTS.md) | complete-with-open-items |
+| Phase 4 live results | [PHASE4_LIVE_RESULTS.md](PHASE4_LIVE_RESULTS.md) | complete-with-open-items |

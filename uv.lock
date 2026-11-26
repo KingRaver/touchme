@@ -1426,12 +1426,12 @@ source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
+    { name = "pillow" },
     { name = "typing-extensions" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "pillow" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -1441,12 +1441,12 @@ dev = [
 requires-dist = [
     { name = "fastmcp", specifier = ">=4.2,<5" },
     { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "pillow", specifier = ">=13.0.0" },
     { name = "typing-extensions", specifier = ">=4.12,<5" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pillow", specifier = ">=13.0.0" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },

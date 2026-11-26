@@ -107,8 +107,11 @@ class FakeOp:
     def findChildren(self, maxDepth=None):
         return self.children
 
-    def pars(self, pattern):
-        return [p for p in (self.builtinPars + self.customPars) if fnmatch.fnmatch(p.name, pattern)]
+    def pars(self, *patterns):
+        return [
+            p for p in (self.builtinPars + self.customPars)
+            if any(fnmatch.fnmatch(p.name, pattern) for pattern in patterns)
+        ]
 
 
 class FakeTime:
@@ -319,7 +322,7 @@ def test_no_response_ever_carries_a_cors_header():
 
 def test_every_reply_carries_the_bridges_api_version_envelope():
     _status, body = call(load({}), "/nope")  # even a 404 gets the envelope-level field
-    assert body["api_version"] == "0.4.0"
+    assert body["api_version"] == "0.5.0"
 
 
 # --- /project-info -----------------------------------------------------------------------
@@ -502,7 +505,7 @@ def test_outer_fallback_error_still_carries_api_version():
     ns = load({})
     response = {}
     ns["onHTTPRequest"](None, None, response)
-    assert json.loads(response["data"])["api_version"] == "0.4.0"
+    assert json.loads(response["data"])["api_version"] == "0.5.0"
 
 
 def test_multiline_message_continues_the_previous_row():
@@ -630,3 +633,48 @@ def test_parameter_limits_are_reported_only_when_clamped(clamp_min, clamp_max, e
     _s, body = call(load({"/p/x": target}), "/parameters", pars={"path": "/p/x"})
     row = body["result"]["parameters"][0]
     assert (row["min"], row["max"]) == expected
+
+
+# --- name patterns and values that are not finite ----------------------------------------------
+
+
+def _with_pars(*pars):
+    return load({"/p/n": FakeOp("/p/n", family="TOP", builtin_pars=list(pars))})
+
+
+@pytest.mark.parametrize(
+    "name, found",
+    [
+        ("tx ty", ["tx", "ty"]),
+        ("ty  t? tx", ["tx", "ty"]),  # overlapping patterns list a parameter once
+        ("nomatch seed", ["seed"]),
+        ("   ", ["tx", "ty", "seed"]),  # blank means no filter
+    ],
+)
+def test_parameter_name_patterns_are_separated_by_spaces(name, found):
+    ns = _with_pars(FakePar("tx", 0.0), FakePar("ty", 0.0), FakePar("seed", 1.0))
+    _status, body = call(ns, "/parameters", pars={"path": "/p/n", "name": name})
+    assert [p["name"] for p in body["result"]["parameters"]] == found
+
+
+@pytest.mark.parametrize("value, text", [("nan", "nan"), ("inf", "inf"), ("-inf", "-inf")])
+@pytest.mark.parametrize("route", ["/parameters", "/operator"])
+def test_values_that_are_not_finite_are_sent_as_text(route, value, text):
+    bad = FakePar(
+        "gain", float(value), is_default=False,
+        min_=float("-inf"), max_=float("inf"), clamp_min=True, clamp_max=True,
+    )
+    ns = _with_pars(bad)
+    response = {}
+    request = {
+        "uri": {"path": route}, "pars": {"path": "/p/n"},
+        "Host": "127.0.0.1:9991", "Authorization": f"Bearer {TOKEN}",
+    }
+    ns["onHTTPRequest"](None, request, response)
+
+    def strict(constant):
+        raise AssertionError(f"{constant} is not JSON")
+
+    result = json.loads(response["data"], parse_constant=strict)["result"]
+    rows = result.get("parameters") or result["non_default_parameters"]
+    assert (rows[0]["value"], rows[0]["min"], rows[0]["max"]) == (text, None, None)

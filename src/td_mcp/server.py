@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import io
+import math
 from typing import Literal, cast
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
+from PIL import Image as PILImage
 
 from td_mcp import docs_index, schemas
-from td_mcp.client import BridgeClient
+from td_mcp.client import BridgeClient, ContactCell
 
 mcp = FastMCP("td-mcp")
 
@@ -32,10 +35,90 @@ def td_capture_top(path: str, format: Literal["png", "jpg"] = "png") -> Image:
     return Image(data=capture.data, format=capture.format)
 
 
+def _tile_cells(cells: list[ContactCell], format: str, columns: int | None) -> Image:
+    """Tile the cells into a grid, each centred in a slot of the largest width and height.
+    Cells are never resized, so their shapes are not distorted."""
+    opened = [(cell, PILImage.open(io.BytesIO(cell.data)).convert("RGB")) for cell in cells]
+    cell_w = max(img.width for _cell, img in opened)
+    cell_h = max(img.height for _cell, img in opened)
+    cols = max(1, min(columns or math.ceil(math.sqrt(len(opened))), len(opened)))
+    rows = math.ceil(len(opened) / cols)
+    sheet = PILImage.new("RGB", (cell_w * cols, cell_h * rows), (32, 32, 32))
+    for index, (_cell, img) in enumerate(opened):
+        left = (index % cols) * cell_w + (cell_w - img.width) // 2
+        top = (index // cols) * cell_h + (cell_h - img.height) // 2
+        sheet.paste(img, (left, top))
+    buffer = io.BytesIO()
+    sheet.save(buffer, format="PNG" if format == "png" else "JPEG")
+    return Image(data=buffer.getvalue(), format=format)
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def td_capture_contact_sheet(
+    paths: list[str],
+    frames: list[float] | None = None,
+    format: Literal["png", "jpg"] = "png",
+    columns: int | None = None,
+) -> Image:
+    """Several TOPs, or one TOP at several timeline frames, tiled into one image to compare
+    variations cheaply.
+
+    paths: 1 to 16 absolute TOP paths. Without `frames`, each is captured at the current frame.
+    frames: optional, at most 12 whole frame numbers inside the timeline's playback range. Every
+    path is captured at every frame (cells go left to right, top to bottom, path by path), then
+    the timeline is put back. Only things computed from the timeline frame change between cells
+    (expressions on me.time.frame, a Timeline CHOP). Anything driven by absTime, time-sliced
+    CHOPs and LFOs do not follow, and a stateful network (Feedback TOP and the like) gives
+    identical cells while the call advances its state by one step.
+    format: "png" or "jpg". A TOP larger than 480x480 pixels in area is scaled down. Cells
+    keep their shape; smaller ones sit centred on a dark grey background.
+    columns: optional grid width. Defaults to a roughly square grid.
+    """
+    return _tile_cells(BridgeClient().contact_cells(paths, frames, format), format, columns)
+
+
 @mcp.tool(annotations=_READ_ONLY)
 def td_project_info() -> schemas.ProjectInfo:
     """Build, project name and folder, cook rate (FPS), and timeline state."""
     return cast(schemas.ProjectInfo, BridgeClient().project_info())
+
+
+@mcp.tool(annotations=_ADDITIVE)
+def td_timeline(
+    play: bool | None = None,
+    frame: float | None = None,
+    start: float | None = None,
+    end: float | None = None,
+) -> schemas.TimelineChanged:
+    """Play, pause, jump to a frame, or set the range of the project's root timeline.
+
+    Give any combination of the four; at least one is required. Frame numbers are whole.
+    start and end set both the timeline's range and its playback range (`range_start`,
+    `range_end`); a frame outside the playback range is refused, and a new range that leaves
+    the playhead outside moves it to the range's first frame. td_undo reverses the change.
+    """
+    return cast(
+        schemas.TimelineChanged, BridgeClient().timeline(play=play, frame=frame, start=start, end=end)
+    )
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def td_get_performance(
+    path: str = "/", top_n: int = 20, max_depth: int = 8
+) -> schemas.PerformanceReport:
+    """FPS, cook time per operator (top N by CPU time), GPU/CPU memory and dropped frames.
+
+    path: subtree to rank by cook time, for example "/project1". Defaults to "/", which leaves
+    out TouchDesigner's own "/ui" and "/sys" networks (listed in `excluded`); pass either path
+    directly to see inside it.
+    top_n: how many of the most expensive operators to return, capped at 200.
+    max_depth: how many levels below `path` to scan for the ranking, capped at 8.
+    Process-wide numbers (fps, memory, dropped frames) come from a Perform CHOP the bridge
+    creates, reads and destroys for this call; nothing is left in the project.
+    """
+    return cast(
+        schemas.PerformanceReport, BridgeClient().get_performance(path, top_n, max_depth)
+    )
 
 
 @mcp.tool(annotations=_READ_ONLY)
@@ -101,10 +184,49 @@ def td_get_parameters(path: str, name: str | None = None) -> schemas.ParameterLi
     """Full parameter detail for one operator (value, expression, mode, clamp limits, menu items).
 
     path: absolute operator path, for example "/project1/out1".
-    name: optional pattern to filter parameter names, for example "t?" for tx/ty/tz.
-    `min`/`max` are clamp limits, null on a side where the value is not clamped.
+    name: optional names or patterns separated by spaces, for example "t?" for tx/ty/tz, or
+    "seed period". `min`/`max` are clamp limits, null on a side where the value is not clamped.
+    A value that is not a finite number is the text "nan", "inf" or "-inf".
     """
     return cast(schemas.ParameterList, BridgeClient().get_parameters(path, name))
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def td_read_chop(
+    path: str, channels: str | None = None, start: int = 0, count: int = 100
+) -> schemas.ChopSamples:
+    """Sample values from a CHOP's channels, with channel and sample limits to protect context.
+
+    path: absolute operator path of a CHOP.
+    channels: optional names or patterns separated by spaces, for example "tx ty" or "chan*".
+    start/count: the sample range to return, from 0. count is capped at 2000, and at 8000
+    values across the channels returned; `next_offset` gives the next page's start. Values that
+    are not finite come back as "nan", "inf" or "-inf".
+    """
+    return cast(schemas.ChopSamples, BridgeClient().read_chop(path, channels, start, count))
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def td_read_dat(path: str, row_offset: int = 0, row_limit: int = 100) -> schemas.DatTable:
+    """Rows from a DAT table, or the text of a non-table DAT, with limits to protect context.
+
+    path: absolute operator path of a DAT.
+    row_offset/row_limit: page through a large table (limit capped at 500, and fewer when the
+    cells are long; `next_row_offset` gives the next page's offset). Columns beyond 64 are left
+    out (`columns_truncated`); each cell, and a non-table DAT's `text`, are clipped.
+    """
+    return cast(schemas.DatTable, BridgeClient().read_dat(path, row_offset, row_limit))
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def td_read_sop_info(path: str) -> schemas.SopInfo:
+    """Point/primitive counts, bounds and attribute names for a SOP; not its full geometry.
+
+    path: absolute operator path of a SOP.
+    Position (P) is always present and is not listed in `point_attributes`. TouchDesigner's
+    internal "__..." groups are left out.
+    """
+    return cast(schemas.SopInfo, BridgeClient().read_sop_info(path))
 
 
 @mcp.tool(annotations=_READ_ONLY)
@@ -120,8 +242,8 @@ def td_describe_operator_type(
 
     type: operator type with its family, for example "noiseTOP". An unknown type is refused
     with the closest valid names.
-    name: optional parameter name pattern, for example "resolution*". Filtering by name also
-    returns full help text and menu labels.
+    name: optional parameter names or patterns separated by spaces, for example "resolution*"
+    or "seed period". Filtering by name also returns full help text and menu labels.
     page: optional parameter page, for example "Transform"; the reply lists the `pages`.
     offset/limit: page through the parameters. limit is capped at 250.
     The bridge reads the type from a temporary operator that it removes at once. Hardware types
@@ -217,8 +339,9 @@ def td_set_parameters(
       "expr": a Python expression TouchDesigner evaluates, for example "absTime.seconds".
       "bind": a bind reference, for example "op('/project1/base1').par.Speed".
     If any change is invalid, or an expression or bind does not work, none are applied.
-    `adjusted` marks a number TouchDesigner clamped. CHOP and DAT exports cannot be created,
-    and pulse buttons cannot be pressed.
+    `adjusted` marks a number TouchDesigner clamped. An expression or bind that evaluates to
+    NaN or infinity is applied, with a `warning`; such values read as "nan", "inf" or "-inf".
+    CHOP and DAT exports cannot be created, and pulse buttons cannot be pressed.
     """
     changes = [dict(change) for change in parameters]
     return cast(schemas.ParametersChanged, BridgeClient().set_parameters(path, changes))

@@ -96,7 +96,45 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
 
 ### Phase 4: Performance and data
 
-- [ ] `td_get_performance`, CHOP/DAT/SOP readers, `td_timeline`, `td_capture_contact_sheet`
+- [x] `td_get_performance`, CHOP/DAT/SOP readers, `td_timeline`, `td_capture_contact_sheet`
+  - Implemented 2026-11-26 on the uncommitted working tree over `5e90090` (bridge API `0.5.0`):
+    all five tools (`td_get_performance`, `td_read_chop`, `td_read_dat`, `td_read_sop_info`,
+    `td_timeline`, `td_capture_contact_sheet`) in `bridge/src/callbacks.py` and
+    `src/td_mcp/{client,schemas,server}.py`. ruff and pyright clean; 407 unit tests pass
+    (57 new, against fakes modeling the OP/CHOP/DAT/SOP/TimeCOMP/Perform CHOP classes as
+    docs.derivative.ca's offline help — reachable this session without TouchDesigner running,
+    from the installed build at `/Applications/TouchDesigner.app` — describes them). Behavior
+    is specified in `specs/TOOL_CATALOG.md`.
+  - **Left unchecked:** no licensed TouchDesigner was open this session, so none of this has
+    been run live (`tests/integration` needs one). Specific open points for that run, beyond
+    the usual first-live-pass fixes Phases 1-3 each needed:
+    - `_perform_values()` (bridge) assumes the operator type string is `performCHOP` and that
+      its channel-toggle parameters are named exactly like their channels (`fps`, `msec`,
+      `droppedframes`, `gpumemused`, `totalgpumem`, `cpumemused`, `activeops`,
+      `deactivatedops`, `totalops`, `cookrate`, `cookrealtime`); a freshly created, force-cooked
+      Perform CHOP reporting correct values has not been checked.
+    - `td_read_sop_info`'s attribute-name lists depend on a `td.Attributes` collection being
+      iterable in Python, which docs.derivative.ca does not document either way (handled with a
+      try/except fallback to an empty list, so a wrong guess degrades rather than fails).
+    - `td_capture_contact_sheet`'s `frames` mode (direct `op('/').time.frame` sets plus
+      `op.cook(force=True)`) has not been checked against a real stateful network (Feedback
+      TOP, Trail CHOP) or a real time-dependent one, to confirm the caveat in its docstring is
+      accurate and that the timeline is always restored even after bridge errors mid-call.
+    - Whether setting `op('/').time`'s `frame`/`play`/`start`/`end` attributes creates a real
+      TouchDesigner undo entry (as a parameter change does) is unknown; `td_timeline`'s
+      `undo_label` is `null` if it does not, which is handled but unconfirmed either way.
+    - CHOP/DAT reads were not checked against very large real channel/table data for
+      performance or correctness of the sample-range and row/column paging math.
+  - Note 2026-11-26: run live on 2025.33230 the same day, which found 13 problems the unit
+    tests had passed. Fixed on the same uncommitted tree and checked off: ruff and pyright
+    clean, 428 unit tests pass, and all 73 integration tests (36 new) passed in one run through
+    the stdio server with TouchDesigner in front. The points above are answered in
+    `research/PHASE4_LIVE_RESULTS.md`, which also lists two problems found in earlier phases'
+    tools and not fixed, and what was not tested.
+  - Note 2026-11-26: the two problems in earlier phases' tools (non-finite parameter values and
+    space-separated name patterns) are fixed on the same uncommitted tree. ruff and pyright
+    clean, 442 unit tests pass, and all 78 integration tests passed in one live run on
+    2025.33230. Evidence in `research/PHASE4_LIVE_RESULTS.md`.
 
 ### Phase 5: Recipes and polish
 

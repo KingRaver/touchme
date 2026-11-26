@@ -225,6 +225,48 @@ def test_one_bad_change_leaves_every_parameter_untouched(td, box, bad, message):
     assert td.par(top, "colorr")["value"] == 1.0
 
 
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_values_that_are_not_finite_are_applied_and_readable(td, box, value):
+    top = new(td, box, "constantTOP", "c")
+    follower = new(td, box, "constantTOP", "f")
+
+    (row,) = td(
+        "td_set_parameters", path=top, parameters=[{"name": "colorr", "expr": f"float('{value}')"}]
+    )["parameters"]
+    assert (row["mode"], row["value"]) == ("EXPRESSION", value)
+    assert value in row["warning"]
+
+    (bound,) = td(
+        "td_set_parameters",
+        path=follower,
+        parameters=[{"name": "colorr", "bind": "op('c').par.colorr"}],
+    )["parameters"]
+    assert (bound["mode"], bound["value"]) == ("BIND", value) and value in bound["warning"]
+
+    assert td.par(top, "colorr")["value"] == value
+    changed = td("td_get_operator", path=top)["non_default_parameters"]
+    assert value in [p["value"] for p in changed]
+
+    (back,) = td("td_set_parameters", path=top, parameters=[{"name": "colorr", "value": 0.5}])[
+        "parameters"
+    ]
+    assert (back["previous"]["value"], back["value"]) == (value, 0.5)
+    td("td_undo")
+    assert td.par(top, "colorr")["value"] == value
+
+
+def test_parameter_name_patterns_are_separated_by_spaces(td, box):
+    top = new(td, box, "noiseTOP", "n")
+
+    def names(pattern):
+        return [p["name"] for p in td("td_get_parameters", path=top, name=pattern)["parameters"]]
+
+    assert sorted(names("tx ty")) == ["tx", "ty"]
+    assert sorted(names("seed  t? tx")) == sorted(["seed", *names("t?")])
+    assert names("nomatch period") == ["period"]
+    assert len(names("   ")) == td("td_get_parameters", path=top)["parameter_count"]
+
+
 def test_password_values_stay_out_of_replies_and_the_audit_log(td, box):
     server = new(td, box, "webserverDAT", "w")
     result = td(
