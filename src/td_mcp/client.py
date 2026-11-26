@@ -23,8 +23,8 @@ DEFAULT_TIMEOUT_S = 10.0
 # package's version. MIN is the oldest bridge build this client will talk to; EXPECTED is
 # what it was built and tested against. A bridge below MIN is refused outright so a stale
 # bridge fails with "rebuild it" instead of a confusing 404 on a route it does not have yet.
-MIN_API_VERSION = "0.3.0"
-EXPECTED_API_VERSION = "0.3.0"
+MIN_API_VERSION = "0.4.0"
+EXPECTED_API_VERSION = "0.4.0"
 # The bridge's Web Server DAT listens on IPv4 127.0.0.1 only (Phase 0), and "localhost" can
 # resolve to ::1 first and be refused, so no other spelling is accepted.
 _LOOPBACK_HOSTS = {"127.0.0.1"}
@@ -322,6 +322,21 @@ class BridgeClient:
 
     def get_operator(self, path: str) -> dict[str, Any]:
         return self._checked_result("/operator", {"path": path})
+
+    def describe_operator_type(
+        self,
+        type: str,
+        name: str | None = None,
+        page: str | None = None,
+        offset: int = 0,
+        limit: int = 60,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"type": type, "offset": offset, "limit": limit}
+        if name:
+            params["name"] = name
+        if page:
+            params["page"] = page
+        return self._checked_result("/describe-type", params)
 
     def get_parameters(self, path: str, name: str | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {"path": path}

@@ -350,7 +350,7 @@ def changing(handler):
 
 
 def ok_change(result):
-    return httpx.Response(200, json={"api_version": "0.3.0", "result": result})
+    return httpx.Response(200, json={"api_version": MIN_API_VERSION, "result": result})
 
 
 @pytest.mark.parametrize(
@@ -428,6 +428,22 @@ def test_a_change_that_never_connected_is_reported_as_unreachable(failure):
 
     with pytest.raises(BridgeError, match="Cannot reach the bridge"):
         changing(handler).delete_operator("/p/a")
+
+
+def test_describe_operator_type_sends_only_the_filters_given():
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return ok_change({"type": "noiseTOP"})
+
+    client = changing(handler)
+    client.describe_operator_type("noiseTOP")
+    client.describe_operator_type("noiseTOP", name="t?", page="Transform", offset=2, limit=3)
+    assert seen == [
+        {"type": "noiseTOP", "offset": "0", "limit": "60"},
+        {"type": "noiseTOP", "offset": "2", "limit": "3", "name": "t?", "page": "Transform"},
+    ]
 
 
 def test_a_read_only_bridge_build_is_refused_before_its_reply_is_used():

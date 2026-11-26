@@ -90,6 +90,37 @@ need (e.g. the Window COMP backing the perform window) is identified.
 | `td_search_docs` | Search an offline index of the operator reference and Python class docs (from docs.derivative.ca). |
 | `td_describe_operator_type` | Parameter list for an operator type read from the **installed** build, so it cannot drift from the docs. |
 
+`td_describe_operator_type` (evidence: `research/PHASE3_KNOWLEDGE_RESULTS.md`):
+
+- The bridge creates one operator of the type with cooking off inside its own component, reads it
+  and destroys it before replying. Nothing stays in the project and no undo entry is made, so the
+  tool is annotated read-only and is not written to the audit log.
+- Types that talk to hardware (camera and other capture, audio devices, sensors, laser, DMX,
+  serial, MIDI, mouse, keyboard and similar; the list is `DEVICE_TYPE_PREFIXES` in the bridge) are
+  never created. Creating some of them asked for camera permission or opened network sockets.
+  They are described from the build's parameter help file with `source: "help_file"` and a
+  `note`: labels, types and summaries only.
+- Each parameter reports name, label, style, page, default and, where they apply, default
+  expression, clamp limits, slider range, menu entries, help, sequence block, `read_only` and
+  `custom`. Fields that do not apply are left out. A sequence shows the blocks a new operator has.
+- Filters: a name pattern, and a page. At most 250 parameters per call (default 60), with
+  `next_offset`. Help is cut to 200 characters unless filtering by name, which also adds menu
+  labels. Also reported: pages, input counts (`max_inputs` was 9999 on a Composite TOP, which
+  takes any number) and the types TouchDesigner adds alongside.
+
+`td_search_docs`:
+
+- Searches the copy of docs.derivative.ca inside the installed TouchDesigner: operator reference
+  and Python class pages, plus the other articles (`kind`: `operator`, `class` or `article`).
+  Release notes are left out. TouchDesigner need not be running. Nothing is fetched online.
+- The index is built on first use into `~/.td-mcp/docs-index.sqlite` and rebuilt when the help
+  folder changes.
+- Returns passages of at most 1200 characters with page, section and docs.derivative.ca URL,
+  5 by default and at most 20, with `next_offset`. Order: reference pages whose whole title is in
+  the query, then passages with every word, then with any word (`all_words: false`). Without a
+  `page` filter, one page gives at most two passages, and identical text is returned once.
+- A class page holds only that class's own members; inherited ones are on the parent's page.
+
 ## Escape hatch (gated)
 
 | Tool | Purpose |

@@ -87,8 +87,10 @@ A local MCP server that lets Claude perceive, act on, and iterate within a live 
 
 ### Phase 3: Knowledge
 
-- [ ] `td_describe_operator_type` from the live build
-- [ ] Offline docs index and `td_search_docs`
+- [x] `td_describe_operator_type` from the live build
+  - Verified 2026-11-26 on the uncommitted working tree over `e257c98` (bridge API `0.4.0`): ruff and pyright clean, 340 unit tests pass, and all 37 integration tests (7 of them for this tool) passed in one live run through the stdio server on 2025.33230, with TouchDesigner in front. The run logged no camera permission request and no camera service activity. Evidence, including why hardware types are never created and are described from the help file, is in `research/PHASE3_KNOWLEDGE_RESULTS.md`.
+- [x] Offline docs index and `td_search_docs`
+  - Verified 2026-11-26 on the uncommitted working tree over `e257c98`: `src/td_mcp/docs_index.py` indexes the installed build's offline help. 9 tests in `tests/integration/test_knowledge.py -k search_docs` passed through the real stdio server, building a fresh index; unit tests cover the parser, ranking and caching. TouchDesigner was not running, as the tool does not need it.
 
 ### Phase 4: Performance and data
 

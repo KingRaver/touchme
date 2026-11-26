@@ -9,7 +9,12 @@ Read routes: GET /ping, GET /capture?path=<absolute TOP path>&format=png|jpg,
 GET /project-info, GET /errors?path=<absolute path>,
 GET /snapshot?path=<absolute path>&maxdepth=<int>,
 GET /children?path=<absolute path>&family=<str>&type=<str>&offset=<int>&limit=<int>,
-GET /operator?path=<absolute path>, GET /parameters?path=<absolute path>&name=<pattern>.
+GET /operator?path=<absolute path>, GET /parameters?path=<absolute path>&name=<pattern>,
+GET /describe-type?type=<str>&name=<pattern>&page=<str>&offset=<int>&limit=<int>.
+/describe-type reads a type's parameters from a temporary operator that it creates with cooking
+off inside the bridge's own component and destroys before replying, outside any undo block.
+Hardware types (DEVICE_TYPE_PREFIXES) are never created: creating some of them asked for camera
+permission or opened network sockets (research/PHASE3_KNOWLEDGE_RESULTS.md).
 Change routes (POST, JSON object body): /create, /connect, /disconnect, /set-parameters,
 /delete, /layout, /undo, /redo. Each change is one TouchDesigner undo entry and is written to the
 audit log before it is applied; if the log cannot be written, nothing is changed. The bridge's
@@ -28,6 +33,7 @@ nothing may be kept in module globals between requests.
 import base64
 import contextlib
 import difflib
+import fnmatch
 import hmac
 import json
 import math
@@ -55,9 +61,9 @@ if TYPE_CHECKING:
 TOKEN = "__TOKEN__"
 _FIXTURES_FLAG = "__TEST_FIXTURES__"  # "1" or "0", set by build_spike.py
 ENABLE_TEST_FIXTURES = _FIXTURES_FLAG == "1"
-# 0.3.0 added the POST change routes, so a server that requires 0.3.0 refuses an older bridge
-# with a rebuild message instead of a "no route" error.
-API_VERSION = "0.3.0"
+# 0.3.0 added the POST change routes and 0.4.0 added /describe-type. A server that requires
+# the newer version refuses an older bridge with a rebuild message instead of a "no route" error.
+API_VERSION = "0.4.0"
 # Built from pieces so build_spike.py's replace of the token placeholder cannot rewrite it.
 _TOKEN_PLACEHOLDER = "__TOK" + "EN__"
 _AUDIT_SETTING = "__AUDIT_LOG__"  # a file path, set by build_spike.py
@@ -99,6 +105,25 @@ MAX_LAYOUT_OPERATORS = 1000
 MAX_AUDIT_STRING = 2000
 LAYOUT_GAP_X = 80
 LAYOUT_GAP_Y = 50
+# /describe-type: the temporary container, page sizes, and text limits that protect context.
+SCRATCH_NAME = "td_mcp_describe"
+DEFAULT_TYPE_PARS = 60
+MAX_TYPE_PARS = 250
+MAX_BRIEF_HELP = 200
+MAX_HELP = 2000
+# Types that talk to capture, audio, sensor, laser, lighting, serial or input hardware, matched
+# as prefixes of the type name without its family ("videodevice" covers videodeviceinTOP and
+# videodevicesDAT). /describe-type never creates them. Only some were seen to have side effects;
+# the rest are listed because a side effect need not be observable on the machine that probed.
+DEVICE_TYPE_PREFIXES = (
+	"audiodevice", "blacktrax", "directdisplayout", "dmxin", "dmxout", "etherdream", "freed",
+	"hokuyo", "joystick", "keyboardin", "kinect", "laserdevice", "leapmotion", "leuze", "midi",
+	"mosys", "mousein", "mouseout", "multitouchin", "ncam", "nuitrack", "oak", "oculus", "openvr",
+	"optitrack", "orbbec", "ouster", "pangolin", "pantilt", "realsense", "screengrab", "serial",
+	"sick", "st2110", "stype", "tablet", "videodevice", "zed",
+)
+PARAMETER_HELP_FILE = "TDParameterHelp.json"
+_NO_HELP = "Help Not Available."
 _NAME_RULE = re.compile(r"[A-Za-z0-9_]+")
 _REDACTED = "<redacted>"
 
@@ -500,6 +525,216 @@ def _parameters(pars):
 	return {"path": target.path, "parameter_count": len(parameters), "parameters": parameters}
 
 
+def _clip_text(text, limit):
+	text = " ".join(str(text).split())
+	return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
+
+
+def _family_of(optype):
+	for family, group in families.items():
+		if any(t.__name__ == optype for t in group):
+			return family
+	return None
+
+
+def _is_device_type(optype, family):
+	return optype[: -len(family)].startswith(DEVICE_TYPE_PREFIXES)
+
+
+def _type_par(par, full):
+	"""One parameter of a type: what a new operator has, without this instance's values."""
+	row = {"name": par.name}
+
+	def put(key, value):
+		if value is not None and value != "" and value != []:
+			row[key] = value
+
+	def read(attribute):
+		try:
+			return getattr(par, attribute)
+		except Exception:
+			return None
+
+	put("label", read("label"))
+	style = read("style")
+	put("style", style)
+	put("page", getattr(read("page"), "name", None))
+	if style not in ("Pulse", "Momentary", "Header", "Sequence"):
+		default = read("default")
+		if default is not None:
+			row["default"] = _jsonable(default)  # kept even when it is an empty string
+	if str(read("defaultMode")).rsplit(".", 1)[-1] == "EXPRESSION":
+		put("default_expr", read("defaultExpr"))
+	# min, max and the slider range mean something only on numbers, and min and max only when
+	# TouchDesigner clamps to them (research/PHASE1_LIVE_RESULTS.md).
+	if read("isNumber"):
+		put("min", _clamp_limit(par, "min", "clampMin"))
+		put("max", _clamp_limit(par, "max", "clampMax"))
+		low, high = read("normMin"), read("normMax")
+		if low is not None and high is not None:
+			row["slider_range"] = [low, high]
+	# Menus, and strings that offer suggestions. Number presets and toggles are left out.
+	if read("isMenu") or read("isString"):
+		put("menu_names", list(read("menuNames") or []))
+		if full:
+			put("menu_labels", list(read("menuLabels") or []))
+	text = read("help")
+	if text and text != _NO_HELP:
+		put("help", _clip_text(text, MAX_HELP if full else MAX_BRIEF_HELP))
+	if read("readOnly"):
+		row["read_only"] = True
+	if read("isCustom"):
+		row["custom"] = True
+	put("sequence", getattr(read("sequence"), "name", None))
+	return row
+
+
+def _page_slice(rows, offset, limit):
+	end = offset + limit
+	return {
+		"parameter_count": len(rows),
+		"offset": offset,
+		"limit": limit,
+		"next_offset": end if end < len(rows) else None,
+	}, rows[offset:end]
+
+
+def _match_page(wanted, pages):
+	for page in pages:
+		if page.lower() == wanted.lower():
+			return page
+	return None
+
+
+def _unknown_page(wanted, pages):
+	return {"error": "no parameter page %r. Pages: %s." % (wanted, ", ".join(pages) or "none")}
+
+
+def _from_scratch(optype, family, name_pattern, page, offset, limit):
+	"""Describe `optype` from a temporary operator. Nothing is left in the project, and the
+	undo history is untouched because no undo block is opened."""
+	box = parent()
+	stale = box.op(SCRATCH_NAME)
+	if stale is not None:
+		stale.destroy()  # left by a request that never finished
+	scratch = box.create("baseCOMP", SCRATCH_NAME)
+	try:
+		# Set before anything is created inside, so the temporary operator never cooks.
+		scratch.allowCooking = False
+		try:
+			made = scratch.create(optype)
+		except Exception as exc:
+			return {"error": "TouchDesigner could not create a %s to read it from: %s" % (optype, exc)}
+		# Parameters without a page are internal (pageindex).
+		pars = [p for p in _all_pars(made) if getattr(p, "page", None) is not None]
+		pages = list(dict.fromkeys(p.page.name for p in pars))
+		if name_pattern:
+			try:
+				allowed = {p.name for p in made.pars(name_pattern)}
+			except Exception:
+				return {"error": "bad name pattern %r" % (name_pattern,)}
+			pars = [p for p in pars if p.name in allowed]
+		if page:
+			found = _match_page(page, pages)
+			if found is None:
+				return _unknown_page(page, pages)
+			pars = [p for p in pars if p.page.name == found]
+		counts, shown = _page_slice(pars, offset, limit)
+		return dict(
+			counts,
+			type=optype,
+			family=family,
+			label=getattr(made, "label", None),
+			source="live",
+			note=None,
+			min_inputs=getattr(made, "minInputs", None),
+			max_inputs=getattr(made, "maxInputs", None),
+			pages=pages,
+			also_creates=sorted(o.type + o.family for o in _all_children(scratch) if o.path != made.path),
+			parameters=[_type_par(p, bool(name_pattern)) for p in shown],
+		)
+	finally:
+		scratch.destroy()
+
+
+def _help_entry(optype):
+	"""This build's own parameter help for a type, or None. Raises OSError or ValueError."""
+	with open(os.path.join(app.configFolder, PARAMETER_HELP_FILE), encoding="utf-8-sig") as handle:
+		families_help = json.load(handle)["help"]
+	for group in families_help.values():
+		if optype in group:
+			return group[optype]
+	return None
+
+
+def _from_help_file(optype, family, name_pattern, page, offset, limit):
+	if page:
+		return {"error": "pages are not known for %s, which is described from the help file" % optype}
+	note = "%s talks to hardware, so no operator was created to read it. " % optype
+	try:
+		entry = _help_entry(optype)
+	except (OSError, ValueError, KeyError, AttributeError) as exc:
+		print("[td-mcp bridge] parameter help unreadable: %s" % exc)
+		entry = None
+	if entry is None:
+		note += "This build's parameter help file has no entry for it."
+		entry = {}
+	else:
+		note += (
+			"This comes from the build's parameter help file, which has no defaults, pages or menu "
+			"entries and names a vector such as tx/ty/tz once, as t."
+		)
+	note += (
+		" For the full list, read an existing one with td_get_parameters, or ask the user before "
+		"creating one with td_create_operator: that can ask for device permissions."
+	)
+	rows = []
+	for name, detail in (entry.get("parameters") or {}).items():
+		# Like TouchDesigner's own matching, a pattern may list several, separated by spaces.
+		if name_pattern and not any(fnmatch.fnmatchcase(name, p) for p in name_pattern.split()):
+			continue
+		row = {"name": name}
+		for key, source in (("label", "label"), ("style", "parType")):
+			if detail.get(source):
+				row[key] = detail[source]
+		if detail.get("summary"):
+			row["help"] = _clip_text(detail["summary"], MAX_HELP if name_pattern else MAX_BRIEF_HELP)
+		rows.append(row)
+	counts, shown = _page_slice(rows, offset, limit)
+	return dict(
+		counts,
+		type=optype,
+		family=family,
+		label=entry.get("label"),
+		source="help_file",
+		note=note,
+		min_inputs=None,
+		max_inputs=None,
+		pages=[],
+		also_creates=[],
+		parameters=shown,
+	)
+
+
+def _describe_type(pars):
+	optype = pars.get("type")
+	if not isinstance(optype, str) or not optype:
+		return {"error": "type must be a non-empty string"}
+	try:
+		offset = int(pars.get("offset", 0))
+		limit = int(pars.get("limit", DEFAULT_TYPE_PARS))
+	except (TypeError, ValueError):
+		return {"error": "offset and limit must be integers"}
+	if offset < 0 or limit <= 0:
+		return {"error": "offset must be >= 0 and limit must be > 0"}
+	limit = min(limit, MAX_TYPE_PARS)
+	family = _family_of(optype)
+	if family is None:
+		return {"error": _unknown_type(optype, _operator_types())}
+	describe = _from_help_file if _is_device_type(optype, family) else _from_scratch
+	return describe(optype, family, pars.get("name"), pars.get("page"), offset, limit)
+
+
 class _Refused(Exception):
 	"""A change request that was turned down before anything was touched."""
 
@@ -690,6 +925,13 @@ def _operator_types():
 	return {t.__name__ for group in families.values() for t in group}
 
 
+def _unknown_type(optype, valid):
+	close = _suggest(optype, valid)
+	return "unknown operator type %r. Types are written with their family, such as noiseTOP.%s" % (
+		optype, " Closest: %s." % ", ".join(close) if close else ""
+	)
+
+
 def _create(body, context):
 	_only_keys(body, "parent", "type", "name", "x", "y")
 	parent_path = _text(body, "parent")
@@ -700,11 +942,7 @@ def _create(body, context):
 		raise _Refused("%s is a %s. Operators can only be created inside a COMP." % (box.path, box.family))
 	valid = _operator_types()
 	if optype not in valid:
-		close = _suggest(optype, valid)
-		raise _Refused(
-			"unknown operator type %r. Types are written with their family, such as noiseTOP.%s"
-			% (optype, " Closest: %s." % ", ".join(close) if close else "")
-		)
+		raise _Refused(_unknown_type(optype, valid))
 	if name is not None and (not isinstance(name, str) or not _NAME_RULE.fullmatch(name)):
 		raise _Refused("name may contain only letters, digits and underscores")
 	x, y = body.get("x"), body.get("y")
@@ -1232,6 +1470,7 @@ ROUTES = {
 	"/children": _children,
 	"/operator": _operator,
 	"/parameters": _parameters,
+	"/describe-type": _describe_type,
 }
 if ENABLE_TEST_FIXTURES:
 	ROUTES["/ensure-demo"] = _ensure_demo_route
