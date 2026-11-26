@@ -2,6 +2,15 @@
 
 Newest first. Progress and evidence for planned work live in [plans/TD_MCP_BUILD.md](plans/TD_MCP_BUILD.md); this file records what changed and why.
 
+## 2026-11-26: Type-check the bridge
+
+### Changed
+- Pyright now checks `bridge/` as well as `src/` and `tests/`, locally and in CI.
+- `bridge/src/callbacks.py` declares the TouchDesigner-injected names it uses (`op`, `parent`, `app`, `project`, `constantTOP`) under `if TYPE_CHECKING:`, so editors and Pyright no longer report them as undefined. The block never runs in TouchDesigner.
+
+### Fixed
+- `bridge/build_spike.py` no longer crashes under `python -OO`, which strips the docstring it takes its help description from.
+
 ## 2026-11-26: Phase 1, core and perception (read-only)
 
 ### Added

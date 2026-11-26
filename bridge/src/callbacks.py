@@ -19,6 +19,18 @@ import hmac
 import json
 import time
 import traceback
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+	# TouchDesigner injects these at runtime. Declared for type checkers only; never executed.
+	from typing import Any
+
+	def op(path: str) -> Any: ...
+	def parent() -> Any: ...
+
+	app: Any = None
+	project: Any = None
+	constantTOP: Any = None
 
 TOKEN = "__TOKEN__"
 _FIXTURES_FLAG = "__TEST_FIXTURES__"  # "1" or "0", set by build_spike.py
