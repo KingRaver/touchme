@@ -45,4 +45,4 @@ addopts = "-m 'not integration'"
 markers = ["integration: needs a live TouchDesigner with the bridge loaded (opt-in)"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "bridge"]

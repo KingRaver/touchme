@@ -111,7 +111,7 @@ def port_number(text):
 
 
 def main():
-	parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+	parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
 	parser.add_argument("--port", type=port_number, default=9991)
 	parser.add_argument("--test-fixtures", action="store_true")
 	args = parser.parse_args()
